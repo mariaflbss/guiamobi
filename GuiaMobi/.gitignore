@@ -1,0 +1,17 @@
+# Dependências
+node_modules/
+
+# Build
+dist/
+.expo/
+web-build/
+
+# Variáveis de ambiente
+.env
+
+# Prisma
+api/prisma/dev.db
+
+# Sistema
+.DS_Store
+*.log
