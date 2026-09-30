@@ -1,0 +1,277 @@
+// Schema do banco de dados da API do GuiaMobi Acessível
+// Sprint 1: apenas os modelos necessários para autenticação (US01)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Usuário do aplicativo
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  // Avatar escolhido no perfil (id de uma lista fixa no app, ex.: "cat"); opcional
+  avatarId     String?  @map("avatar_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("users")
+}
+
+// Token de recuperação de senha (US01 - "Recuperação de senha por e-mail")
+// O token é enviado por e-mail e usado uma única vez para redefinir a senha.
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique @map("token_hash") // nunca armazenar o token em texto puro
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Dados de transporte: modelo em duas camadas.
+//
+// 1) FIXTURE DE DESENVOLVIMENTO (dataSource = DEV_FIXTURE): o catálogo de
+//    100 linhas oficiais (nome/código, copiados da página da Prefeitura) e o
+//    trajeto manualmente verificado de 3 delas, usados só para provar que o
+//    algoritmo funciona localmente. NUNCA deve ser apresentado como "a rede
+//    completa de SJC" - ver DevFixtureProvider e o README de
+//    api/src/integrations/transit/.
+// 2) GTFS OFICIAL (dataSource = OFFICIAL_GTFS): populado pelo importador em
+//    api/src/integrations/gtfs/ a partir de um feed GTFS real (agency,
+//    routes, stops, trips, stop_times, calendar, calendar_dates, shapes),
+//    sem nenhum limite artificial de linhas/paradas/viagens. Ver
+//    GtfsDatabaseProvider.
+// ---------------------------------------------------------------------------
+
+enum TransitDataSource {
+  DEV_FIXTURE
+  OFFICIAL_GTFS
+}
+
+model TransitAgency {
+  id        String   @id @default(uuid())
+  gtfsId    String   @unique @map("gtfs_id") // agency_id do GTFS (ou "default" se o feed omitir)
+  name      String
+  url       String?
+  timezone  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lines TransitLine[]
+
+  @@map("transit_agencies")
+}
+
+model TransitStop {
+  id          String  @id @default(uuid())
+  name        String
+  latitude    Float
+  longitude   Float
+  // Preenchidos só quando a parada vem de um GTFS real (stops.txt)
+  gtfsStopId  String? @unique @map("gtfs_stop_id")
+  stopCode    String? @map("stop_code")
+
+  lineStops LineStop[]
+  stopTimes TransitStopTime[]
+
+  @@map("transit_stops")
+}
+
+model TransitLine {
+  id        String   @id @default(uuid())
+  // Não é globalmente único: o mesmo número de linha real (ex.: "101") pode
+  // existir tanto no catálogo de desenvolvimento quanto, mais tarde, num
+  // GTFS oficial importado - são registros diferentes até a fixture ser
+  // desativada. A combinação (code, dataSource) é que precisa ser única.
+  code      String   // ex.: "315"
+  name      String            // ex.: "Parque Interlagos / Terminal Central"
+  dataSource TransitDataSource @default(DEV_FIXTURE) @map("data_source")
+  // Mantido por compatibilidade com o código já escrito antes desta rodada;
+  // hoje espelha dataSource == OFFICIAL_GTFS ou (para a fixture) o antigo
+  // significado de "nome/código real, mas não é o GTFS completo".
+  isOfficialData Boolean @default(false) @map("is_official_data")
+  officialSourceUrl String? @map("official_source_url")
+  // Preenchidos só quando a linha vem de um GTFS real (routes.txt)
+  gtfsRouteId String? @unique @map("gtfs_route_id")
+  routeType   Int?    @map("route_type") // GTFS route_type (3 = ônibus, etc.)
+  agencyId    String? @map("agency_id")
+  agency      TransitAgency? @relation(fields: [agencyId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  stops    LineStop[]
+  status   TransitLineStatus?
+  departures TransitDeparture[]
+  trips    TransitTrip[]
+
+  @@unique([code, dataSource])
+  @@map("transit_lines")
+}
+
+// Situação operacional atual de uma linha (US06/R39). Sem uma fonte oficial
+// de tempo real (GTFS-Realtime Service Alerts), esta tabela fica vazia e
+// toda linha é tratada como OPERATIONAL - nunca inventamos atraso/indisponibilidade.
+enum TransitLineStatusValue {
+  OPERATIONAL
+  DELAYED
+  UNAVAILABLE
+}
+
+model TransitLineStatus {
+  id            String                  @id @default(uuid())
+  lineId        String                  @unique @map("line_id")
+  status        TransitLineStatusValue  @default(OPERATIONAL)
+  delayMinutes  Int?                    @map("delay_minutes")
+  reason        String?
+  updatedAt     DateTime                @updatedAt @map("updated_at")
+
+  line TransitLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@map("transit_line_status")
+}
+
+// Horário de partida programado - usado só pela fixture de desenvolvimento
+// (dataSource = DEV_FIXTURE). Quando dataSource = OFFICIAL_GTFS, os horários
+// reais vêm de TransitStopTime (stop_times.txt), não desta tabela.
+enum TransitDayType {
+  WEEKDAY
+  SATURDAY
+  SUNDAY_HOLIDAY
+}
+
+model TransitDeparture {
+  id            String         @id @default(uuid())
+  lineId        String         @map("line_id")
+  dayType       TransitDayType @map("day_type")
+  departureTime String         @map("departure_time") // "HH:MM"
+
+  line TransitLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@index([lineId, dayType])
+  @@map("transit_departures")
+}
+
+// Associação linha <-> parada - usada só pela fixture de desenvolvimento
+// (dataSource = DEV_FIXTURE). O equivalente para dados OFFICIAL_GTFS é
+// TransitTrip + TransitStopTime, que modelam viagens individuais como no
+// GTFS de verdade (uma linha tem várias viagens/trips, cada uma com sua
+// própria sequência de horários por parada).
+model LineStop {
+  id            String @id @default(uuid())
+  lineId        String @map("line_id")
+  stopId        String @map("stop_id")
+  sequence      Int
+  minutesFromStart Int @map("minutes_from_start")
+
+  line TransitLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  stop TransitStop @relation(fields: [stopId], references: [id], onDelete: Cascade)
+
+  @@unique([lineId, sequence])
+  @@index([stopId])
+  @@map("line_stops")
+}
+
+// ---------------------------------------------------------------------------
+// Modelos GTFS oficiais (populados só pelo importador de GTFS real, nunca
+// manualmente). Espelham calendar.txt, calendar_dates.txt, shapes.txt,
+// trips.txt e stop_times.txt da especificação GTFS.
+// ---------------------------------------------------------------------------
+
+// calendar.txt: dias da semana em que um "service_id" roda, e sua validade.
+model TransitService {
+  id            String   @id @default(uuid())
+  gtfsServiceId String   @unique @map("gtfs_service_id")
+  monday        Boolean
+  tuesday       Boolean
+  wednesday     Boolean
+  thursday      Boolean
+  friday        Boolean
+  saturday      Boolean
+  sunday        Boolean
+  startDate     DateTime @map("start_date")
+  endDate       DateTime @map("end_date")
+
+  trips      TransitTrip[]
+  exceptions TransitCalendarException[]
+
+  @@map("transit_services")
+}
+
+// calendar_dates.txt: exceções pontuais (feriado sem operação, operação
+// extra num dia específico) - exceptionType 1 = adicionado, 2 = removido.
+model TransitCalendarException {
+  id            String   @id @default(uuid())
+  serviceId     String   @map("service_id")
+  date          DateTime
+  exceptionType Int      @map("exception_type")
+
+  service TransitService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, date])
+  @@map("transit_calendar_exceptions")
+}
+
+// shapes.txt: pontos do traçado geográfico real de uma viagem (para desenhar
+// a linha no mapa da US09 com a geometria oficial, não um traço inventado).
+model TransitShape {
+  id           String @id @default(uuid())
+  gtfsShapeId  String @map("gtfs_shape_id")
+  sequence     Int    @map("sequence")
+  latitude     Float
+  longitude    Float
+  distTraveled Float? @map("dist_traveled")
+
+  @@unique([gtfsShapeId, sequence])
+  @@index([gtfsShapeId])
+  @@map("transit_shapes")
+}
+
+// trips.txt: uma viagem específica de uma linha, num service_id e sentido.
+model TransitTrip {
+  id           String  @id @default(uuid())
+  gtfsTripId   String  @unique @map("gtfs_trip_id")
+  lineId       String  @map("line_id")
+  serviceId    String  @map("service_id")
+  headsign     String? @map("headsign")
+  directionId  Int?    @map("direction_id")
+  gtfsShapeId  String? @map("gtfs_shape_id") // aponta para TransitShape.gtfsShapeId (não é FK estrita: shape tem várias linhas)
+
+  line    TransitLine    @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  service TransitService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  stopTimes TransitStopTime[]
+
+  @@index([lineId])
+  @@index([serviceId])
+  @@map("transit_trips")
+}
+
+// stop_times.txt: horário real de passagem de uma viagem em cada parada.
+model TransitStopTime {
+  id            String @id @default(uuid())
+  tripId        String @map("trip_id")
+  stopId        String @map("stop_id")
+  sequence      Int
+  arrivalTime   String @map("arrival_time")   // "HH:MM:SS" (GTFS permite >24h para viagens após meia-noite)
+  departureTime String @map("departure_time")
+
+  trip TransitTrip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  stop TransitStop @relation(fields: [stopId], references: [id], onDelete: Cascade)
+
+  @@unique([tripId, sequence])
+  @@index([stopId])
+  @@index([tripId])
+  @@map("transit_stop_times")
+}

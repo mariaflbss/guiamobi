@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "GuiaMobi Acessível",
+    "slug": "guiamobi-acessivel",
+    "scheme": "guiamobi",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Usamos sua localização para sugerir sua origem e calcular rotas de transporte público."
+      }
+    },
+    "android": {
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Usamos sua localização para sugerir sua origem e calcular rotas de transporte público."
+        }
+      ],
+      [
+        "react-native-maps",
+        {
+          "androidGoogleMapsApiKey": "process.env.GOOGLE_MAPS_API_KEY"
+        }
+      ]
+    ]
+  }
+}
