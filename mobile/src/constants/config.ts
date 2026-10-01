@@ -31,5 +31,5 @@ export const privacyConsentKey = (userId: string) => `guiamobi.privacyConsentAcc
 // Canais de contato exibidos na tela Ajuda. Configure em mobile/.env; enquanto
 // estiverem vazios, a tela informa que o contato ainda não foi configurado
 // (não inventamos e-mail nem telefone).
-export const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL ?? '';
+export const SUPPORT_EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL || 'guiamobiacessivel@gmail.com';
 export const SUPPORT_PHONE = process.env.EXPO_PUBLIC_SUPPORT_PHONE ?? '';

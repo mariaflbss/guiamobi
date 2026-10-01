@@ -73,6 +73,7 @@
     "favorites": "Favorites",
     "seeAll": "See all",
     "recentRoutes": "Recent routes",
+    "lastRouteTitle": "Your last searched route",
     "noRecentRoutes": "Your searches will appear here.",
     "noFavorites": "Save your places in Favorites to choose faster.",
     "lastRouteSuggestion": "Repeat the last search",
@@ -223,10 +224,10 @@
     "expand": "Show answer",
     "collapse": "Hide answer",
     "needMoreHelp": "Need more help?",
-    "contactText": "Contact us by email or phone below.",
+    "contactText": "Contact the support center by email below.",
     "email": "Email",
     "phone": "Phone",
-    "contactUnavailable": "Contact channels have not been set up in this version yet.",
+    "contactUnavailable": "The support contact is not configured in this version yet.",
     "faq": {
       "findRoute": {
         "q": "How do I find a route?",
@@ -258,7 +259,9 @@
       }
     },
     "listenAnswer": "Listen to answer",
-    "listenAnswerHint": "Plays the question and answer aloud."
+    "listenAnswerHint": "Plays the question and answer aloud.",
+    "floatingLabel": "Help",
+    "floatingHint": "Opens the help and frequently asked questions page."
   },
   "navigation": {
     "home": "Home",

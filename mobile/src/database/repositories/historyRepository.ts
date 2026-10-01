@@ -32,8 +32,25 @@ export const historyRepository = {
     const userId = await requireCurrentUserId();
     const id = generateId();
     const searchedAt = new Date().toISOString();
+    let duplicateItem: SearchHistoryItem | null = null;
 
     await withDatabase(async (db) => {
+      const lastRows = await db.getAllAsync<HistoryRow>(
+        `SELECT * FROM search_history
+         WHERE user_id = ?
+         ORDER BY searched_at DESC, rowid DESC
+         LIMIT 1`,
+        [userId]
+      );
+      const last = lastRows[0];
+
+      if (last && isSameRoute(last, input)) {
+        // Somente a pesquisa imediatamente anterior é comparada.
+        // Assim, A→B, C→D, A→B continua registrando a terceira pesquisa.
+        duplicateItem = mapRowToHistory(last);
+        return;
+      }
+
       await db.runAsync(
         `INSERT INTO search_history
           (id, user_id, origin_label, origin_latitude, origin_longitude, destination_label, destination_latitude, destination_longitude, searched_at)
@@ -59,6 +76,8 @@ export const historyRepository = {
         [userId, userId, MAX_HISTORY_ITEMS]
       );
     });
+
+    if (duplicateItem) return duplicateItem;
 
     return {
       id,
@@ -107,6 +126,30 @@ interface HistoryRow {
   searched_at: string;
   line_code: string | null;
   duration_minutes: number | null;
+}
+
+const SAME_PLACE_TOLERANCE_DEGREES = 0.0001;
+
+function isSameRoute(row: HistoryRow, input: CreateHistoryInput): boolean {
+  return (
+    normalizeLabel(row.origin_label) === normalizeLabel(input.originLabel) &&
+    normalizeLabel(row.destination_label) === normalizeLabel(input.destinationLabel) &&
+    coordinatesMatch(row.origin_latitude, row.origin_longitude, input.originCoordinates.latitude, input.originCoordinates.longitude) &&
+    coordinatesMatch(
+      row.destination_latitude,
+      row.destination_longitude,
+      input.destinationCoordinates.latitude,
+      input.destinationCoordinates.longitude
+    )
+  );
+}
+
+function normalizeLabel(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+}
+
+function coordinatesMatch(latA: number, lonA: number, latB: number, lonB: number): boolean {
+  return Math.abs(latA - latB) <= SAME_PLACE_TOLERANCE_DEGREES && Math.abs(lonA - lonB) <= SAME_PLACE_TOLERANCE_DEGREES;
 }
 
 function mapRowToHistory(row: HistoryRow): SearchHistoryItem {

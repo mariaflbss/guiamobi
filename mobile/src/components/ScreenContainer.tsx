@@ -2,6 +2,7 @@ import React from 'react';
 import { ScrollView, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAccessibility } from '../contexts/AccessibilityContext';
+import { HelpFloatingButton } from './HelpFloatingButton';
 
 interface ScreenContainerProps {
   children: React.ReactNode;
@@ -58,6 +59,7 @@ export function ScreenContainer({
       {header}
       {body}
       {footer ? <View style={{ paddingBottom: insets.bottom }}>{footer}</View> : null}
+      <HelpFloatingButton hasFooter={Boolean(footer)} />
     </View>
   );
 }

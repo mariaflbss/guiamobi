@@ -73,6 +73,7 @@
     "favorites": "Favoritos",
     "seeAll": "Ver todos",
     "recentRoutes": "Rutas recientes",
+    "lastRouteTitle": "Tu última ruta buscada",
     "noRecentRoutes": "Tus búsquedas aparecerán aquí.",
     "noFavorites": "Guarda tus lugares en Favoritos para elegir más rápido.",
     "lastRouteSuggestion": "Repetir la última búsqueda",
@@ -223,10 +224,10 @@
     "expand": "Mostrar respuesta",
     "collapse": "Ocultar respuesta",
     "needMoreHelp": "¿Necesitas más ayuda?",
-    "contactText": "Contáctanos por correo o teléfono abajo.",
+    "contactText": "Contacte al centro de soporte por correo electrónico a continuación.",
     "email": "Correo",
     "phone": "Teléfono",
-    "contactUnavailable": "Los canales de contacto aún no fueron configurados en esta versión.",
+    "contactUnavailable": "El contacto de soporte todavía no está configurado en esta versión.",
     "faq": {
       "findRoute": {
         "q": "¿Cómo encontrar una ruta?",
@@ -258,7 +259,9 @@
       }
     },
     "listenAnswer": "Escuchar respuesta",
-    "listenAnswerHint": "Reproduce la pregunta y la respuesta en audio."
+    "listenAnswerHint": "Reproduce la pregunta y la respuesta en audio.",
+    "floatingLabel": "Ayuda",
+    "floatingHint": "Abre la página de ayuda y preguntas frecuentes."
   },
   "navigation": {
     "home": "Inicio",

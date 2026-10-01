@@ -73,6 +73,7 @@
     "favorites": "Favoritos",
     "seeAll": "Ver todos",
     "recentRoutes": "Rotas recentes",
+    "lastRouteTitle": "Sua última rota pesquisada",
     "noRecentRoutes": "Suas buscas aparecerão aqui.",
     "noFavorites": "Salve seus locais em Favoritos para escolher mais rápido.",
     "lastRouteSuggestion": "Repetir a última busca",
@@ -223,10 +224,12 @@
     "expand": "Mostrar resposta",
     "collapse": "Ocultar resposta",
     "needMoreHelp": "Precisa de mais ajuda?",
-    "contactText": "Entre em contato por e-mail ou telefone abaixo.",
+    "contactText": "Entre em contato pelo e-mail da central abaixo.",
     "email": "E-mail",
     "phone": "Telefone",
-    "contactUnavailable": "Os canais de contato ainda não foram configurados nesta versão.",
+    "contactUnavailable": "O contato da central ainda não foi configurado nesta versão.",
+    "floatingLabel": "Ajuda",
+    "floatingHint": "Abre a página de ajuda e perguntas frequentes.",
     "faq": {
       "findRoute": {
         "q": "Como encontrar uma rota?",

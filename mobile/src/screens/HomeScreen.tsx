@@ -46,7 +46,7 @@ function FullHome() {
   const { user } = useAuth();
   const { isConnected } = useConnectivity();
   const { favorites } = useFavorites();
-  const { history } = useSearchHistory();
+  const { history, lastRoute } = useSearchHistory();
   const navigation = useNavigation<HomeNavigation>();
   const insets = useSafeAreaInsets();
   const draft = useRouteDraft();
@@ -225,6 +225,19 @@ function FullHome() {
             </View>
           )}
         </View>
+
+        {lastRoute ? (
+          <View style={styles.section}>
+            <AccessibleText variant="subtitle" weight="extrabold" accessibilityRole="header" style={styles.recentTitle}>
+              {t('home.lastRouteTitle')}
+            </AccessibleText>
+            <RecentRouteRow
+              item={lastRoute}
+              onPress={() => applyRecent(lastRoute)}
+              hint={t('home.lastRouteSuggestion')}
+            />
+          </View>
+        ) : null}
 
         <View style={styles.section}>
           <AccessibleText variant="subtitle" weight="extrabold" accessibilityRole="header" style={styles.recentTitle}>

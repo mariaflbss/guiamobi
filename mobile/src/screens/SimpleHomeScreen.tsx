@@ -16,6 +16,7 @@ import { toneColors } from '../components/SettingCard';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { useRouteDraft } from '../contexts/RouteDraftContext';
 import { useFavorites } from '../hooks/useFavorites';
+import { useSearchHistory } from '../hooks/useSearchHistory';
 import { useLocationSearch } from '../hooks/useLocationSearch';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
 import { AppStackParamList } from '../navigation/types';
@@ -39,6 +40,7 @@ export function SimpleHomeScreen() {
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
   const { favorites } = useFavorites();
+  const { lastRoute } = useSearchHistory();
   const location = useLocationSearch();
   const draft = useRouteDraft();
   const [locationDenied, setLocationDenied] = useState(false);
@@ -126,6 +128,33 @@ export function SimpleHomeScreen() {
       {locationDenied ? <InlineMessage message={t('home.locationDenied')} tone="warning" /> : null}
       {location.isLocating ? <InlineMessage message={t('simpleMode.locating')} tone="info" /> : null}
 
+      {lastRoute ? (
+        <Pressable
+          onPress={() => {
+            const origin = { label: lastRoute.originLabel, latitude: lastRoute.originLatitude, longitude: lastRoute.originLongitude };
+            const destination = {
+              label: lastRoute.destinationLabel,
+              latitude: lastRoute.destinationLatitude,
+              longitude: lastRoute.destinationLongitude,
+            };
+            navigation.navigate('RoutesFound', { origin, destination });
+            announce(`${t('home.lastRouteSuggestion')}: ${lastRoute.originLabel} ${t('common.to')} ${lastRoute.destinationLabel}`);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={`${t('home.lastRouteTitle')}: ${lastRoute.originLabel} ${t('common.to')} ${lastRoute.destinationLabel}`}
+          accessibilityHint={t('home.lastRouteSuggestion')}
+        >
+          <Card style={styles.lastRouteCard}>
+            <AccessibleText variant="caption" weight="bold" color={c.textSecondary}>
+              {t('home.lastRouteTitle')}
+            </AccessibleText>
+            <AccessibleText variant="body" weight="extrabold" numberOfLines={2}>
+              {lastRoute.originLabel} → {lastRoute.destinationLabel}
+            </AccessibleText>
+          </Card>
+        </Pressable>
+      ) : null}
+
       <View style={styles.options}>
         {favorites.length === 0 ? (
           <>
@@ -183,6 +212,7 @@ const styles = StyleSheet.create({
   content: { alignItems: 'stretch' },
   logo: { width: 84, height: 84, borderRadius: 24, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginTop: 8, marginBottom: 16 },
   center: { textAlign: 'center' },
+  lastRouteCard: { gap: 4, padding: 14, marginTop: 18 },
   options: { marginTop: 22, gap: 14 },
   option: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderWidth: 2, borderRadius: 22, minHeight: 84 },
   arrow: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
