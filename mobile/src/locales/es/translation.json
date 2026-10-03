@@ -313,17 +313,25 @@
     "legendLine": "Línea {{code}}",
     "legendYou": "Tú",
     "legendOrigin": "Origen",
+    "legendPoi": "Puntos de orientación",
+    "legendFavorite": "Favorito",
+    "unnamedPoi": "Nombre no disponible",
+    "favoritePlace": "Lugar favorito",
     "shapeUnavailable": "El trazado real de esta línea (por las calles) no está disponible en los datos. Solo se muestran las paradas, sin unirlas con una línea recta.",
     "mapStop": "Parada",
     "mapAddress": "Dirección",
     "mapUnavailable": "No se pudo cargar el mapa. Verifique su conexión a internet.",
     "poi": {
       "hospital": "Hospital",
-      "bank": "Banco",
-      "square": "Plaza",
+      "clinic": "Clínica / centro de salud",
       "pharmacy": "Farmacia",
-      "school": "Escuela"
-    }
+      "dentist": "Dentista",
+      "bank": "Banco",
+      "atm": "Cajero automático",
+      "supermarket": "Supermercado",
+      "square": "Plaza"
+    },
+    "stopDescription": "Parada {{name}} del itinerario seleccionado."
   },
   "tracking": {
     "title": "Viaje en curso - Línea {{code}}",
@@ -347,7 +355,12 @@
     "approaching": "Estás llegando a tu destino: {{name}}.",
     "arrived": "Llegaste a tu destino: {{name}}.",
     "mapLabel": "Mapa esquemático del viaje en la línea {{code}}",
-    "mins": "~{{count}} min"
+    "mins": "~{{count}} min",
+    "panelTitle": "Seguimiento",
+    "nearbyLinesTitle": "Líneas cercanas",
+    "nearbyLinesStop": "Estás a unos {{distance}} m de la parada {{stop}}. Líneas que salen de ella:",
+    "nearbyLinesLabel": "Líneas cercanas a {{stop}}",
+    "nearbyReference": "Punto de referencia cercano: {{name}}"
   },
   "stopAlert": {
     "title": "¡Prepárate!",

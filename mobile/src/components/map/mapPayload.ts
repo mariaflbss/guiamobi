@@ -11,9 +11,17 @@ export interface MapVehicle {
   longitude: number;
 }
 
+export interface MapFavorite {
+  id: string;
+  nickname: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
 export interface MapPoi {
   id: string;
-  category: 'hospital' | 'bank' | 'square' | 'pharmacy' | 'school';
+  category: 'hospital' | 'clinic' | 'pharmacy' | 'dentist' | 'bank' | 'atm' | 'supermarket' | 'square';
   name: string | null;
   latitude: number;
   longitude: number;
@@ -35,6 +43,8 @@ export const MAP_MARKER_COLORS = {
   originRing: '#0F5FA8',
   destination: '#16A34A',
   stop: '#64748B',
+  poi: '#B45309',
+  favorite: '#7C3AED',
 } as const;
 
 export interface MapColors {
@@ -44,12 +54,15 @@ export interface MapColors {
   originRing: string;
   destination: string;
   stop: string;
+  poi: string;
+  favorite: string;
 }
 
 export interface MapDataInput {
   stops: MapStop[];
   shape?: Coordinates[];
   pois?: MapPoi[];
+  favorites?: MapFavorite[];
   vehicles?: MapVehicle[];
   boardingIndex?: number;
   destinationIndex?: number;
@@ -64,6 +77,9 @@ export interface MapDataInput {
     stop: string;
     address: string;
     mapUnavailable: string;
+    unnamedPoi: string;
+    favorite: string;
+    poi: Record<MapPoi['category'], string>;
   };
 }
 
@@ -90,6 +106,13 @@ export function buildMapData(input: MapDataInput) {
       lon: poi.longitude,
       name: poi.name ?? '',
       category: poi.category,
+    })),
+    favorites: (input.favorites ?? []).map((favorite) => ({
+      id: favorite.id,
+      lat: favorite.latitude,
+      lon: favorite.longitude,
+      nickname: favorite.nickname,
+      address: favorite.address,
     })),
     vehicles: (input.vehicles ?? []).map((v) => [v.latitude, v.longitude]),
     colors: input.colors,

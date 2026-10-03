@@ -20,8 +20,8 @@ const PAGE_SCRIPT = `
 (function () {
   'use strict';
 
-  var DEFAULT_LABELS = { line: '', you: 'You', origin: 'Origin', destination: 'Destination', stop: 'Stop', address: 'Address', mapUnavailable: 'Map unavailable' };
-  var DEFAULT_COLORS = { line: '#1852A4', you: '#0B2E6B', origin: '#7CC4FA', originRing: '#0F5FA8', destination: '#16A34A', stop: '#64748B' };
+  var DEFAULT_LABELS = { line: '', you: 'You', origin: 'Origin', destination: 'Destination', stop: 'Stop', address: 'Address', mapUnavailable: 'Map unavailable', unnamedPoi: 'Name unavailable', favorite: 'Favorite', poi: {} };
+  var DEFAULT_COLORS = { line: '#1852A4', you: '#0B2E6B', origin: '#7CC4FA', originRing: '#0F5FA8', destination: '#16A34A', stop: '#64748B', poi: '#B45309', favorite: '#7C3AED' };
 
   var OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
   var PROVIDERS = {
@@ -84,13 +84,14 @@ const PAGE_SCRIPT = `
   map.setView([0, 0], 2);
 
   // Painéis separados: a ordem de empilhamento não depende da ordem de redesenho.
-  [['shape', 410], ['stops', 420], ['pois', 430], ['vehicles', 440], ['user', 450]].forEach(function (p) {
+  [['shape', 410], ['stops', 420], ['pois', 430], ['favorites', 435], ['vehicles', 440], ['user', 450]].forEach(function (p) {
     map.createPane(p[0]).style.zIndex = p[1];
   });
   var groups = {
     shape: L.layerGroup().addTo(map),
     stops: L.layerGroup().addTo(map),
     pois: L.layerGroup().addTo(map),
+    favorites: L.layerGroup().addTo(map),
     vehicles: L.layerGroup().addTo(map),
     user: L.layerGroup().addTo(map)
   };
@@ -199,9 +200,20 @@ const PAGE_SCRIPT = `
   }
 
   // Alvo de toque maior e invisível: marcadores de 7 px são difíceis de tocar.
-  function hit(latlng, pane, content) {
-    var h = L.circleMarker(latlng, { pane: pane, radius: 18, stroke: false, fillColor: '#000000', fillOpacity: 0 });
-    h.bindPopup(content);
+  function hit(latlng, pane, content, speech) {
+    // Use um alvo HTML transparente de 44x44 px em vez de circleMarker invisível.
+    // No Android/WebView ele recebe toque de forma mais confiável e mantém o
+    // marcador visual separado do alvo de interação.
+    var h = L.marker(latlng, {
+      pane: pane,
+      interactive: true,
+      bubblingMouseEvents: false,
+      icon: L.divIcon({ className: 'map-hit', html: '<span></span>', iconSize: [44, 44], iconAnchor: [22, 22] })
+    });
+    h.bindPopup(content, { maxWidth: 280, closeButton: true });
+    if (speech && speech.text) {
+      h.on('click', function () { post({ type: 'speak', text: speech.text }); });
+    }
     return h;
   }
 
@@ -212,10 +224,14 @@ const PAGE_SCRIPT = `
     state.stopPoints.forEach(function (p) { pts.push(p); });
     state.shapePoints.forEach(function (p) { pts.push(p); });
     if (state.userPos) pts.push(state.userPos);
+    // Favoritos são pontos pessoais persistentes e devem participar do enquadramento
+    // inicial mesmo quando estiverem fora do raio de 1 km dos POIs de orientação.
+    if (state.favoritePoints) state.favoritePoints.forEach(function (p) { pts.push(p); });
     return pts;
   }
   state.stopPoints = [];
   state.shapePoints = [];
+  state.favoritePoints = [];
 
   function fitAll(attempt) {
     if (state.fitTimer) { clearTimeout(state.fitTimer); state.fitTimer = null; }
@@ -251,7 +267,7 @@ const PAGE_SCRIPT = `
     var colors = state.colors;
     var labels = state.labels;
 
-    if (sig('stops', [d.stops, colors, labels])) {
+    if (sig('stops', [d.stops, colors, labels.stop, labels.address, labels.origin, labels.destination])) {
       groups.stops.clearLayers();
       state.stopPoints = [];
       // Destino por cima de tudo, depois origem, depois a parada atual. Assim,
@@ -271,7 +287,7 @@ const PAGE_SCRIPT = `
         else marker = dot(latlng, 'stops', 5, colors.stop, { weight: 2 });
         marker.options.interactive = false;
         groups.stops.addLayer(marker);
-        groups.stops.addLayer(hit(latlng, 'stops', popupEl(lines)));
+        groups.stops.addLayer(hit(latlng, 'stops', popupEl(lines), { type: 'stop', text: lines.filter(Boolean).join('. ') }));
         state.stopPoints.push(latlng);
       });
     }
@@ -284,12 +300,28 @@ const PAGE_SCRIPT = `
       }
     }
 
-    if (sig('pois', d.pois)) {
+    if (sig('pois', [d.pois, labels.poi, labels.unnamedPoi])) {
       groups.pois.clearLayers();
       d.pois.forEach(function (p) {
         var latlng = [p.lat, p.lon];
-        groups.pois.addLayer(dot(latlng, 'pois', 6, '#f59e0b', { interactive: false }));
-        groups.pois.addLayer(hit(latlng, 'pois', popupEl([p.name || p.category])));
+        groups.pois.addLayer(dot(latlng, 'pois', 7, colors.poi, { color: '#ffffff', weight: 2, interactive: false }));
+        var categoryLabel = labels.poi && labels.poi[p.category] ? labels.poi[p.category] : labels.unnamedPoi;
+        var nameLabel = p.name || labels.unnamedPoi;
+        var content = popupEl([nameLabel, categoryLabel]);
+        groups.pois.addLayer(hit(latlng, 'pois', content, { type: 'poi', text: nameLabel + '. ' + categoryLabel }));
+      });
+    }
+
+    if (sig('favorites', [d.favorites, labels.favorite])) {
+      groups.favorites.clearLayers();
+      state.favoritePoints = [];
+      (d.favorites || []).forEach(function (f) {
+        var latlng = [f.lat, f.lon];
+        state.favoritePoints.push(latlng);
+        groups.favorites.addLayer(dot(latlng, 'favorites', 8, colors.favorite, { color: '#ffffff', weight: 2, interactive: false }));
+        var title = f.nickname || labels.favorite;
+        var lines = [title, f.address || ''];
+        groups.favorites.addLayer(hit(latlng, 'favorites', popupEl(lines), { type: 'favorite', text: title + (f.address ? '. ' + f.address : '') }));
       });
     }
 
@@ -297,7 +329,7 @@ const PAGE_SCRIPT = `
       groups.vehicles.clearLayers();
       d.vehicles.forEach(function (v) {
         groups.vehicles.addLayer(dot(v, 'vehicles', 7, colors.line, { interactive: false }));
-        groups.vehicles.addLayer(hit(v, 'vehicles', popupEl([labels.line])));
+        groups.vehicles.addLayer(hit(v, 'vehicles', popupEl([labels.line]), { type: 'vehicle', text: labels.line }));
       });
     }
 
@@ -312,7 +344,7 @@ const PAGE_SCRIPT = `
     groups.user.addLayer(L.circleMarker(state.userPos, { pane: 'user', radius: 18, stroke: false, fillColor: colors.you, fillOpacity: 0.2, interactive: false }));
     var me = dot(state.userPos, 'user', 9, colors.you, { weight: 3, interactive: false });
     groups.user.addLayer(me);
-    groups.user.addLayer(hit(state.userPos, 'user', popupEl([state.labels.you])));
+    groups.user.addLayer(hit(state.userPos, 'user', popupEl([state.labels.you]), { type: 'user', text: state.labels.you }));
     // Primeiro sinal de GPS: enquadra usuário + paradas (uma vez, e só se
     // a pessoa ainda não mexeu no mapa). Assim o usuário nunca "perde" a linha.
     if (!state.userFitted && !state.interacted) {
@@ -340,7 +372,9 @@ html, body, #map { margin:0; padding:0; width:100%; height:100%; background:#e5e
 body { overflow:hidden; -webkit-tap-highlight-color: transparent; }
 .leaflet-control-attribution { font-size:9px; }
 .leaflet-control-zoom a { width:36px !important; height:36px !important; line-height:36px !important; font-size:22px !important; }
-.leaflet-popup-content { font:13px/1.35 sans-serif; margin:10px 12px; }
+.leaflet-popup-content { font:13px/1.35 sans-serif; margin:10px 12px; max-width:280px; width:max-content; min-width:70px; word-break:normal; overflow-wrap:anywhere; }
+.map-hit { width:44px !important; height:44px !important; margin:0 !important; padding:0 !important; pointer-events:auto !important; background:transparent; border:0; }
+.map-hit span { display:block; width:44px; height:44px; pointer-events:auto; }
 #banner { display:none; position:absolute; z-index:9999; left:50%; top:50%; transform:translate(-50%,-50%); max-width:78%;
   padding:10px 12px; border-radius:10px; background:#fff; color:#222; font:13px/1.3 sans-serif; text-align:center;
   box-shadow:0 2px 8px rgba(0,0,0,.2); pointer-events:none; }

@@ -11,7 +11,7 @@ export interface PoiItem {
 }
 
 /**
- * Pontos de referência reais (hospitais, bancos, praças, farmácias, escolas)
+ * Pontos de referência reais úteis para orientação (saúde, serviços essenciais, supermercado e praças)
  * ao redor de um ponto, vindos do OpenStreetMap via Overpass API - uma fonte
  * pública e gratuita, consultada só pelo backend (o app nunca fala com ela).
  *
@@ -33,10 +33,13 @@ let lastRequestAt = 0;
 
 const OSM_FILTERS: Record<PoiCategory, string> = {
   hospital: '["amenity"="hospital"]',
-  bank: '["amenity"="bank"]',
-  square: '["place"="square"]',
+  clinic: '["amenity"="clinic"]',
   pharmacy: '["amenity"="pharmacy"]',
-  school: '["amenity"="school"]',
+  dentist: '["healthcare"="dentist"]',
+  bank: '["amenity"="bank"]',
+  atm: '["amenity"="atm"]',
+  supermarket: '["shop"="supermarket"]',
+  square: '["place"="square"]',
 };
 
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -63,10 +66,13 @@ function categoryOf(tags: Record<string, string> | undefined, wanted: PoiCategor
   if (!tags) return null;
   for (const category of wanted) {
     if (category === 'hospital' && tags.amenity === 'hospital') return category;
-    if (category === 'bank' && tags.amenity === 'bank') return category;
-    if (category === 'square' && tags.place === 'square') return category;
+    if (category === 'clinic' && tags.amenity === 'clinic') return category;
     if (category === 'pharmacy' && tags.amenity === 'pharmacy') return category;
-    if (category === 'school' && tags.amenity === 'school') return category;
+    if (category === 'dentist' && tags.healthcare === 'dentist') return category;
+    if (category === 'bank' && tags.amenity === 'bank') return category;
+    if (category === 'atm' && tags.amenity === 'atm') return category;
+    if (category === 'supermarket' && tags.shop === 'supermarket') return category;
+    if (category === 'square' && tags.place === 'square') return category;
   }
   return null;
 }

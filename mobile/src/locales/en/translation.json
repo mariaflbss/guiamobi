@@ -313,17 +313,25 @@
     "legendLine": "Line {{code}}",
     "legendYou": "You",
     "legendOrigin": "Origin",
+    "legendPoi": "Landmarks",
+    "legendFavorite": "Favorite",
+    "unnamedPoi": "Name unavailable",
+    "favoritePlace": "Favorite place",
     "shapeUnavailable": "The real street route of this line is not available in the data. Only the stops are shown, not joined by a straight line.",
     "mapStop": "Stop",
     "mapAddress": "Address",
     "mapUnavailable": "Could not load the map. Check your internet connection.",
     "poi": {
       "hospital": "Hospital",
-      "bank": "Bank",
-      "square": "Square",
+      "clinic": "Clinic / health center",
       "pharmacy": "Pharmacy",
-      "school": "School"
-    }
+      "dentist": "Dentist",
+      "bank": "Bank",
+      "atm": "ATM",
+      "supermarket": "Supermarket",
+      "square": "Square"
+    },
+    "stopDescription": "Stop {{name}} on the selected itinerary."
   },
   "tracking": {
     "title": "Trip in progress - Line {{code}}",
@@ -347,7 +355,12 @@
     "approaching": "You are getting close to your destination: {{name}}.",
     "arrived": "You have arrived at your destination: {{name}}.",
     "mapLabel": "Schematic map of the trip on line {{code}}",
-    "mins": "~{{count}} min"
+    "mins": "~{{count}} min",
+    "panelTitle": "Trip tracking",
+    "nearbyLinesTitle": "Nearby lines",
+    "nearbyLinesStop": "You are approximately {{distance}} m from {{stop}}. Lines departing from this stop:",
+    "nearbyLinesLabel": "Lines near {{stop}}",
+    "nearbyReference": "Nearby reference point: {{name}}"
   },
   "stopAlert": {
     "title": "Get ready!",

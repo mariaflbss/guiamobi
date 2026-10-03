@@ -1,7 +1,7 @@
 import { httpClient } from './httpClient';
 import { Coordinates } from '../../types/location';
 
-export type PoiCategory = 'hospital' | 'bank' | 'square' | 'pharmacy' | 'school';
+export type PoiCategory = 'hospital' | 'clinic' | 'pharmacy' | 'dentist' | 'bank' | 'atm' | 'supermarket' | 'square';
 
 export interface PoiItem {
   id: string;

@@ -4,7 +4,6 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useTranslation } from 'react-i18next';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { AccessibleText } from './AccessibleText';
-import { InlineMessage } from './InlineMessage';
 import { MAP_REFERER_URL } from '../constants/config';
 import { MAP_HTML } from './map/mapHtml';
 import {
@@ -12,6 +11,7 @@ import {
   buildPageCall,
   MAP_MARKER_COLORS,
   MapPoi,
+  MapFavorite,
   MapStop,
   MapVehicle,
   normalizeBaseUrl,
@@ -27,6 +27,7 @@ interface RouteMapProps {
   user?: Coordinates | null;
   shape?: Coordinates[];
   pois?: MapPoi[];
+  favorites?: MapFavorite[];
   currentStopAddress?: string;
   vehicles?: MapVehicle[];
   height?: number;
@@ -66,13 +67,14 @@ export function RouteMap({
   shape,
   vehicles,
   pois,
+  favorites,
   currentStopAddress,
-  height = 150,
+  height,
   accessibilityLabel,
   badge,
 }: RouteMapProps) {
   const { t } = useTranslation();
-  const { theme } = useAccessibility();
+  const { theme, speak } = useAccessibility();
   const c = theme.colors;
   const [mapType, setMapType] = useState<MapTypeKey>('standard');
   const [readyCount, setReadyCount] = useState(0);
@@ -88,6 +90,7 @@ export function RouteMap({
         stops,
         shape,
         pois,
+        favorites,
         vehicles,
         boardingIndex,
         destinationIndex,
@@ -102,13 +105,24 @@ export function RouteMap({
           stop: t('routeDetail.mapStop'),
           address: t('routeDetail.mapAddress'),
           mapUnavailable: t('routeDetail.mapUnavailable'),
+          unnamedPoi: t('routeDetail.unnamedPoi'),
+          favorite: t('routeDetail.favoritePlace'),
+          poi: {
+            hospital: t('routeDetail.poi.hospital'),
+            clinic: t('routeDetail.poi.clinic'),
+            pharmacy: t('routeDetail.poi.pharmacy'),
+            dentist: t('routeDetail.poi.dentist'),
+            bank: t('routeDetail.poi.bank'),
+            atm: t('routeDetail.poi.atm'),
+            supermarket: t('routeDetail.poi.supermarket'),
+            square: t('routeDetail.poi.square'),
+          },
         },
       })
     : null;
   const dataScript = mapData ? buildPageCall('setData', mapData) : '';
   // Traçado real só existe se passou na validação; senão a linha fica ausente e avisamos.
   const hasRealShape = mapData?.shapeStatus === 'ok';
-  const showShapeNotice = hasStops && !hasRealShape;
 
   const run = useCallback((script: string) => {
     webViewRef.current?.injectJavaScript(script);
@@ -122,6 +136,7 @@ export function RouteMap({
       try {
         const message = JSON.parse(event.nativeEvent.data);
         if (message?.type === 'ready') markReady();
+        if (message?.type === 'speak' && typeof message.text === 'string') speak(message.text);
       } catch {
         // mensagem que não é do mapa: ignora
       }
@@ -156,8 +171,8 @@ export function RouteMap({
   }, [readyCount, mapType, run]);
 
   return (
-    <View>
-    <View style={[styles.container, { height }]} accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
+    <View style={height == null ? styles.flexContainer : undefined}>
+    <View style={[styles.container, height == null ? styles.flexContainer : { height }]} accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
       {hasStops ? (
         <WebView
           key={reloadKey}
@@ -219,6 +234,18 @@ export function RouteMap({
             <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendDestination')}</AccessibleText>
           </View>
         ) : null}
+        {pois && pois.length > 0 ? (
+          <View style={styles.legendRow}>
+            <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.poi, borderColor: '#FFFFFF' }]} />
+            <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendPoi')}</AccessibleText>
+          </View>
+        ) : null}
+        {favorites && favorites.length > 0 ? (
+          <View style={styles.legendRow}>
+            <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.favorite, borderColor: '#FFFFFF' }]} />
+            <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendFavorite')}</AccessibleText>
+          </View>
+        ) : null}
       </View>
 
       <View style={[styles.mapTypeSelector, { backgroundColor: c.surface }]} accessibilityRole="tablist">
@@ -247,22 +274,17 @@ export function RouteMap({
       ) : null}
     </View>
 
-    {showShapeNotice ? (
-      <View style={styles.notice}>
-        <InlineMessage message={t('routeDetail.shapeUnavailable')} tone="info" />
-      </View>
-    ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  flexContainer: { flex: 1, minHeight: 120 },
   container: { width: '100%', overflow: 'hidden' },
   legend: { position: 'absolute', top: 10, right: 10, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, gap: 3 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendLine: { width: 14, height: 4, borderRadius: 2 },
   legendDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
-  notice: { paddingHorizontal: 16, paddingTop: 10 },
   legendText: { fontSize: 11 },
   badge: { position: 'absolute', left: 10, bottom: 10, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
   mapTypeSelector: { position: 'absolute', top: 10, left: 10, flexDirection: 'row', borderRadius: 10, padding: 3, gap: 3 },

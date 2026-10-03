@@ -3,9 +3,10 @@ import { PoiItem, poiService } from '../services/api/poiService';
 import { Coordinates } from '../types/location';
 
 /**
- * Pontos de referência reais próximos a um ponto (US09). Consulta uma vez por
- * região (arredondada a ~110 m) para não sobrecarregar a fonte pública; em
- * caso de falha/sem conexão, simplesmente não mostra POIs (nunca inventa).
+ * Pontos de referência reais próximos a um ponto (US09). Mantém apenas
+ * categorias úteis para orientação: saúde, serviços essenciais, supermercado
+ * e praça. A posição é arredondada para reaproveitar cache sem consultar a
+ * fonte pública a cada pequena variação do GPS.
  */
 export function useNearbyPois(center: Coordinates | null | undefined) {
   const [items, setItems] = useState<PoiItem[]>([]);
@@ -15,7 +16,7 @@ export function useNearbyPois(center: Coordinates | null | undefined) {
     if (!center || !key) return;
     let cancelled = false;
     poiService
-      .nearby(center, 500, ['hospital', 'bank', 'square'])
+      .nearby(center, 1000, ['hospital', 'clinic', 'pharmacy', 'dentist', 'bank', 'atm', 'supermarket', 'square'])
       .then((result) => {
         if (!cancelled) setItems(result);
       })
