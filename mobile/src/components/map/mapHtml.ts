@@ -20,8 +20,8 @@ const PAGE_SCRIPT = `
 (function () {
   'use strict';
 
-  var DEFAULT_LABELS = { line: '', you: 'You', origin: 'Origin', stop: 'Stop', address: 'Address', mapUnavailable: 'Map unavailable' };
-  var DEFAULT_COLORS = { primary: '#1D5FD0', primaryDark: '#123F8E', success: '#16794C', origin: '#7C3AED' };
+  var DEFAULT_LABELS = { line: '', you: 'You', origin: 'Origin', destination: 'Destination', stop: 'Stop', address: 'Address', mapUnavailable: 'Map unavailable' };
+  var DEFAULT_COLORS = { line: '#1852A4', you: '#0B2E6B', origin: '#7CC4FA', originRing: '#0F5FA8', destination: '#16A34A', stop: '#64748B' };
 
   var OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
   var PROVIDERS = {
@@ -205,6 +205,8 @@ const PAGE_SCRIPT = `
     return h;
   }
 
+  function rank(s) { return s.destination ? 3 : (s.boarding ? 2 : (s.current ? 1 : 0)); }
+
   function allPoints() {
     var pts = [];
     state.stopPoints.forEach(function (p) { pts.push(p); });
@@ -252,17 +254,23 @@ const PAGE_SCRIPT = `
     if (sig('stops', [d.stops, colors, labels])) {
       groups.stops.clearLayers();
       state.stopPoints = [];
-      d.stops.forEach(function (s) {
+      // Destino por cima de tudo, depois origem, depois a parada atual. Assim,
+      // num trajeto de ida e volta (origem e destino no mesmo ponto) o destino aparece.
+      var order = d.stops.slice().sort(function (a, b) { return rank(a) - rank(b) || a.index - b.index; });
+      order.forEach(function (s) {
         var latlng = [s.lat, s.lon];
-        // A origem selecionada não é a posição GPS do usuário. Usa uma cor
-        // própria para evitar os dois marcadores azuis quando o usuário está
-        // longe do ponto de embarque.
-        var color = s.destination ? colors.success : (s.boarding ? colors.origin : (s.current ? colors.primary : colors.primaryDark));
         var title = labels.stop + ' ' + (s.index + 1) + (s.name ? ' - ' + s.name : '');
         var lines = [title];
-        if (s.boarding) lines.push(labels.origin);
+        if (s.destination) lines.push(labels.destination);
+        else if (s.boarding) lines.push(labels.origin);
         if (s.address) lines.push(labels.address + ': ' + s.address);
-        groups.stops.addLayer(dot(latlng, 'stops', s.boarding ? 9 : 7, color, { interactive: false }));
+        var marker;
+        if (s.destination) marker = dot(latlng, 'stops', 10, colors.destination, { color: '#ffffff', weight: 3 });
+        else if (s.boarding) marker = dot(latlng, 'stops', 10, colors.origin, { color: colors.originRing, weight: 4 });
+        else if (s.current) marker = dot(latlng, 'stops', 7, colors.stop, { color: '#1f2937', weight: 3 });
+        else marker = dot(latlng, 'stops', 5, colors.stop, { weight: 2 });
+        marker.options.interactive = false;
+        groups.stops.addLayer(marker);
         groups.stops.addLayer(hit(latlng, 'stops', popupEl(lines)));
         state.stopPoints.push(latlng);
       });
@@ -272,7 +280,7 @@ const PAGE_SCRIPT = `
       groups.shape.clearLayers();
       state.shapePoints = d.shape.length > 1 ? d.shape : [];
       if (d.shape.length > 1) {
-        groups.shape.addLayer(L.polyline(d.shape, { pane: 'shape', color: colors.primary, weight: 5, opacity: 0.9, interactive: false }));
+        groups.shape.addLayer(L.polyline(d.shape, { pane: 'shape', color: colors.line, weight: 5, opacity: 0.9, interactive: false }));
       }
     }
 
@@ -288,7 +296,7 @@ const PAGE_SCRIPT = `
     if (sig('vehicles', [d.vehicles, colors, labels])) {
       groups.vehicles.clearLayers();
       d.vehicles.forEach(function (v) {
-        groups.vehicles.addLayer(dot(v, 'vehicles', 7, colors.primary, { interactive: false }));
+        groups.vehicles.addLayer(dot(v, 'vehicles', 7, colors.line, { interactive: false }));
         groups.vehicles.addLayer(hit(v, 'vehicles', popupEl([labels.line])));
       });
     }
@@ -301,8 +309,8 @@ const PAGE_SCRIPT = `
     state.userPos = pos && isFinite(pos[0]) && isFinite(pos[1]) ? pos : null;
     if (!state.userPos) return;
     var colors = state.colors;
-    groups.user.addLayer(L.circleMarker(state.userPos, { pane: 'user', radius: 18, stroke: false, fillColor: colors.primary, fillOpacity: 0.18, interactive: false }));
-    var me = dot(state.userPos, 'user', 9, colors.primary, { interactive: false });
+    groups.user.addLayer(L.circleMarker(state.userPos, { pane: 'user', radius: 18, stroke: false, fillColor: colors.you, fillOpacity: 0.2, interactive: false }));
+    var me = dot(state.userPos, 'user', 9, colors.you, { weight: 3, interactive: false });
     groups.user.addLayer(me);
     groups.user.addLayer(hit(state.userPos, 'user', popupEl([state.labels.you])));
     // Primeiro sinal de GPS: enquadra usuário + paradas (uma vez, e só se

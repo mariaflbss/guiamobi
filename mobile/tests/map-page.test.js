@@ -27,11 +27,14 @@ function loadTs(file) {
   return mod.exports;
 }
 const { MAP_HTML } = loadTs('mapHtml.ts');
-const { buildMapData, buildPageCall, normalizeBaseUrl } = loadTs('mapPayload.ts');
+const { buildMapData, buildPageCall, normalizeBaseUrl, evaluateShape, MAP_MARKER_COLORS } = loadTs('mapPayload.ts');
 
 const BASE_URL = 'https://guiamobi.app/';
-const colors = { primary: '#1D5FD0', primaryDark: '#123F8E', success: '#16794C', origin: '#7C3AED' };
-const labels = { line: 'Linha 875', you: 'Você', origin: 'Origem', stop: 'Parada', address: 'Endereço', mapUnavailable: 'MAPA INDISPONÍVEL' };
+const colors = { line: '#1852A4', ...MAP_MARKER_COLORS };
+const labels = {
+  line: 'Linha 875', you: 'Você', origin: 'Origem', destination: 'Destino', stop: 'Parada', address: 'Endereço',
+  mapUnavailable: 'MAPA INDISPONÍVEL',
+};
 
 // Paradas reais de exemplo (região de São Paulo)
 const STOPS = [
@@ -39,12 +42,30 @@ const STOPS = [
   { latitude: -23.5613, longitude: -46.6565, name: 'Av. Paulista' },
   { latitude: -23.5874, longitude: -46.6576, name: 'Ibirapuera' },
 ];
-const SHAPE = [
-  { latitude: -23.5505, longitude: -46.6333 },
-  { latitude: -23.5560, longitude: -46.6450 },
-  { latitude: -23.5613, longitude: -46.6565 },
-  { latitude: -23.5874, longitude: -46.6576 },
-];
+// Traçado sintético que SEGUE "ruas": degraus de quarteirão com vértice a cada ~20 m
+// (um shape real de GTFS/OTP tem esse perfil). Não é uma reta entre paradas.
+function streetShape(points, stepDeg = 0.0002) {
+  const out = [];
+  for (let i = 1; i < points.length; i += 1) {
+    let { latitude: lat, longitude: lon } = points[i - 1];
+    const target = points[i];
+    out.push({ latitude: lat, longitude: lon });
+    let alongLat = true, guard = 0;
+    while ((Math.abs(lat - target.latitude) > stepDeg || Math.abs(lon - target.longitude) > stepDeg) && guard++ < 20000) {
+      // anda ~500 m numa direção, depois dobra a esquina
+      for (let k = 0; k < 25; k += 1) {
+        if (alongLat && Math.abs(lat - target.latitude) > stepDeg) lat += Math.sign(target.latitude - lat) * stepDeg;
+        else if (!alongLat && Math.abs(lon - target.longitude) > stepDeg) lon += Math.sign(target.longitude - lon) * stepDeg;
+        else break;
+        out.push({ latitude: lat, longitude: lon });
+      }
+      alongLat = !alongLat;
+    }
+    out.push({ latitude: target.latitude, longitude: target.longitude });
+  }
+  return out;
+}
+const SHAPE = streetShape(STOPS);
 
 function dataFor(extra = {}) {
   return buildMapData({
@@ -97,15 +118,9 @@ test('paradas, linha, POIs e veículos são desenhados nos painéis certos', () 
   assert.equal(paneCount(win, 'pois'), 2);
   assert.equal(paneCount(win, 'vehicles'), 2);
   const fills = [...win.document.querySelectorAll('.leaflet-stops-pane path')].map((p) => p.getAttribute('fill'));
-  assert.ok(fills.includes(colors.primary), 'parada atual em cor primária');
-  assert.ok(fills.includes(colors.origin), 'origem em cor distinta do GPS');
-  assert.ok(fills.includes(colors.success), 'destino em cor de sucesso');
-});
-
-test('sem shape do GTFS, usa as paradas como traçado de fallback', () => {
-  const { win, GM } = openPage();
-  GM.setData(dataFor({ shape: undefined }));
-  assert.equal(paneCount(win, 'shape'), 1);
+  assert.ok(fills.includes(colors.origin), 'origem em azul claro');
+  assert.ok(fills.includes(colors.destination), 'destino em verde');
+  assert.ok(fills.includes(colors.stop), 'parada comum em cinza neutro');
 });
 
 test('mapa enquadra todas as paradas e a linha, com margem na tela', () => {
@@ -228,9 +243,9 @@ test('popup da parada mostra "Parada N - nome" e o endereço da parada atual', (
   const { GM } = openPage();
   GM.setData(dataFor());
   const texts = popupLayers(GM).map((l) => l.getPopup().getContent().textContent);
-  assert.ok(texts.includes('Parada 1 - Sé'));
+  assert.ok(texts.includes('Parada 1 - SéOrigem'));
   assert.ok(texts.includes('Parada 2 - Av. PaulistaEndereço: Av. Paulista, 1000'));
-  assert.ok(texts.includes('Parada 3 - Ibirapuera'));
+  assert.ok(texts.includes('Parada 3 - IbirapueraDestino'));
   assert.ok(texts.includes('Hospital X'));
   assert.ok(texts.includes('Linha 875'), 'veículo');
 });
@@ -262,4 +277,135 @@ test('buildPageCall: JSON seguro, executável e com U+2028 escapado', () => {
 test('normalizeBaseUrl garante "/" final', () => {
   assert.equal(normalizeBaseUrl('https://x.com'), 'https://x.com/');
   assert.equal(normalizeBaseUrl('https://x.com/'), 'https://x.com/');
+});
+
+/* ======================= Traçado real, sem fallback ======================= */
+
+const stopsOnly = STOPS.map(({ latitude, longitude }) => ({ latitude, longitude }));
+
+test('evaluateShape: aceita só geometria real de rua', () => {
+  assert.equal(evaluateShape(SHAPE, stopsOnly).status, 'ok');
+  assert.ok(evaluateShape(SHAPE, stopsOnly).points.length > 50);
+});
+
+test('evaluateShape: sem shape / 1 ponto / lixo -> "missing", sem pontos', () => {
+  for (const bad of [undefined, null, [], [stopsOnly[0]], [{ latitude: NaN, longitude: 1 }, { latitude: 1, longitude: NaN }]]) {
+    const r = evaluateShape(bad, stopsOnly);
+    assert.equal(r.status, 'missing');
+    assert.deepEqual(r.points, []);
+  }
+});
+
+test('evaluateShape: shape feito só das paradas é rejeitado (não é trajeto)', () => {
+  const r = evaluateShape(stopsOnly, stopsOnly);
+  assert.equal(r.status, 'derived-from-stops');
+  assert.deepEqual(r.points, []);
+  // ida e volta (mesma parada repetida) também
+  assert.equal(evaluateShape([stopsOnly[0], stopsOnly[1], stopsOnly[0]], stopsOnly).status, 'derived-from-stops');
+});
+
+test('evaluateShape: poucos vértices com retas longas é rejeitado como grosseiro', () => {
+  const coarse = [{ latitude: -23.5505, longitude: -46.6333 }, { latitude: -23.56, longitude: -46.66 }, { latitude: -23.6, longitude: -46.7 }];
+  const r = evaluateShape(coarse, []);
+  assert.equal(r.status, 'too-coarse');
+  assert.deepEqual(r.points, []);
+});
+
+test('Linha 103 (Terminal Central -> Costinha -> Terminal Central) sem shape: nenhuma linha é desenhada', () => {
+  const terminal = { latitude: -23.17889, longitude: -45.88694, name: 'Terminal Central' };
+  const costinha = { latitude: -23.09007, longitude: -45.92573, name: 'Costinha' };
+  const { win, GM } = openPage();
+  const data = buildMapData({
+    stops: [terminal, costinha, terminal], shape: undefined, boardingIndex: 0, destinationIndex: 1, colors, labels,
+  });
+  assert.equal(data.shapeStatus, 'missing');
+  assert.deepEqual(data.shape, []);
+  GM.setData(data);
+  assert.equal(paneCount(win, 'shape'), 0, 'NENHUMA reta entre as paradas');
+  assert.ok(paneCount(win, 'stops') >= 4, 'as paradas continuam aparecendo');
+  assert.equal(win.document.querySelectorAll('.leaflet-overlay-pane path[stroke="' + colors.line + '"]').length, 0);
+});
+
+test('buildMapData: mesmo se a tela mandar o shape = paradas, nada é desenhado', () => {
+  const { win, GM } = openPage();
+  const data = buildMapData({ stops: STOPS, shape: stopsOnly, colors, labels });
+  assert.equal(data.shapeStatus, 'derived-from-stops');
+  GM.setData(data);
+  assert.equal(paneCount(win, 'shape'), 0);
+});
+
+test('com shape real: a linha aparece e acompanha os vértices (não a reta entre paradas)', () => {
+  const { win, GM } = openPage();
+  const data = buildMapData({ stops: STOPS, shape: SHAPE, colors, labels });
+  assert.equal(data.shapeStatus, 'ok');
+  assert.ok(data.shape.length > 50);
+  GM.setData(data);
+  assert.equal(paneCount(win, 'shape'), 1);
+  // (o atributo "d" do SVG é simplificado pelo Leaflet conforme o zoom; confere a geometria da polilinha)
+  const lines = [];
+  GM._map.eachLayer((l) => { if (l instanceof win.L.Polyline && !(l instanceof win.L.CircleMarker)) lines.push(l); });
+  assert.equal(lines.length, 1);
+  const latlngs = lines[0].getLatLngs();
+  assert.equal(latlngs.length, data.shape.length, 'todos os vértices do shape real foram usados');
+  assert.ok(latlngs.length > 50, 'muitos vértices, não 2 pontos ligando as paradas');
+});
+
+test('trocar para sem-shape depois de ter shape remove a linha (sem resíduo)', () => {
+  const { win, GM } = openPage();
+  GM.setData(buildMapData({ stops: STOPS, shape: SHAPE, colors, labels }));
+  assert.equal(paneCount(win, 'shape'), 1);
+  GM.setData(buildMapData({ stops: STOPS, shape: undefined, colors, labels }));
+  assert.equal(paneCount(win, 'shape'), 0);
+});
+
+/* ============================ Cores dos marcadores ============================ */
+
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const dist = (a, b) => Math.hypot(...hex(a).map((v, i) => v - hex(b)[i]));
+
+test('Você / Origem / Destino têm cores bem distintas entre si e das paradas comuns', () => {
+  const set = { you: colors.you, origin: colors.origin, destination: colors.destination, stop: colors.stop };
+  const names = Object.keys(set);
+  for (let i = 0; i < names.length; i += 1) {
+    for (let j = i + 1; j < names.length; j += 1) {
+      assert.ok(dist(set[names[i]], set[names[j]]) > 90, `${names[i]} x ${names[j]} muito parecidos`);
+    }
+  }
+  // "Você" é azul ESCURO e "Origem" azul CLARO
+  const lum = (h) => 0.299 * hex(h)[0] + 0.587 * hex(h)[1] + 0.114 * hex(h)[2];
+  assert.ok(lum(colors.you) < 70, 'Você escuro');
+  assert.ok(lum(colors.origin) > 150, 'Origem claro');
+  assert.ok(hex(colors.destination)[1] > hex(colors.destination)[0] && hex(colors.destination)[1] > hex(colors.destination)[2], 'Destino verde');
+});
+
+test('marcadores no mapa usam exatamente as cores combinadas (Você escuro, Origem claro com aro, Destino verde)', () => {
+  const { win, GM } = openPage();
+  GM.setData(dataFor());
+  GM.setUser([-23.552, -46.636]);
+  const fill = (pane) => [...win.document.querySelectorAll(`.leaflet-${pane}-pane path`)].map((p) => [p.getAttribute('fill'), p.getAttribute('stroke')]);
+  const stops = fill('stops');
+  assert.ok(stops.some(([f, st]) => f === colors.origin && st === colors.originRing), 'origem: azul claro + aro azul-escuro');
+  assert.ok(stops.some(([f]) => f === colors.destination), 'destino verde');
+  assert.ok(!stops.some(([f]) => f === colors.you), 'nenhuma parada usa a cor do usuário');
+  assert.ok(fill('user').some(([f]) => f === colors.you), 'usuário azul escuro');
+});
+
+test('ida e volta: origem e destino no mesmo ponto -> o destino fica por cima', () => {
+  const { win, GM } = openPage();
+  const t = { latitude: -23.17889, longitude: -45.88694, name: 'Terminal Central' };
+  GM.setData(buildMapData({
+    stops: [t, { latitude: -23.09, longitude: -45.925, name: 'Costinha' }, t], boardingIndex: 0, destinationIndex: 2, colors, labels,
+  }));
+  const paths = [...win.document.querySelectorAll('.leaflet-stops-pane path')];
+  const idxOrigin = paths.findIndex((p) => p.getAttribute('fill') === colors.origin);
+  const idxDest = paths.findIndex((p) => p.getAttribute('fill') === colors.destination);
+  assert.ok(idxOrigin >= 0 && idxDest > idxOrigin, 'destino desenhado depois (acima) da origem');
+});
+
+test('legenda do RouteMap usa as MESMAS constantes de cor que o mapa', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'components', 'RouteMap.tsx'), 'utf8');
+  for (const k of ['you', 'origin', 'originRing', 'destination']) assert.match(src, new RegExp(`MAP_MARKER_COLORS\\.${k}`), k);
+  assert.match(src, /\.\.\.MAP_MARKER_COLORS/, 'mapa recebe as mesmas cores');
+  assert.match(src, /hasRealShape \? \(/, 'item "Linha" da legenda só existe com traçado real');
+  assert.match(src, /routeDetail\.shapeUnavailable/, 'aviso de traçado indisponível');
 });

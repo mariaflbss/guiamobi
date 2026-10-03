@@ -4,9 +4,18 @@ import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useTranslation } from 'react-i18next';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { AccessibleText } from './AccessibleText';
+import { InlineMessage } from './InlineMessage';
 import { MAP_REFERER_URL } from '../constants/config';
 import { MAP_HTML } from './map/mapHtml';
-import { buildMapData, buildPageCall, MapPoi, MapStop, MapVehicle, normalizeBaseUrl } from './map/mapPayload';
+import {
+  buildMapData,
+  buildPageCall,
+  MAP_MARKER_COLORS,
+  MapPoi,
+  MapStop,
+  MapVehicle,
+  normalizeBaseUrl,
+} from './map/mapPayload';
 import { Coordinates } from '../types/location';
 
 interface RouteMapProps {
@@ -74,30 +83,32 @@ export function RouteMap({
 
   // Comando "setData" (paradas, linha, POIs, veículos). É uma string: o efeito
   // abaixo só roda quando o CONTEÚDO muda, mesmo que as telas recriem os arrays.
-  const dataScript = hasStops
-    ? buildPageCall(
-        'setData',
-        buildMapData({
-          stops,
-          shape,
-          pois,
-          vehicles,
-          boardingIndex,
-          destinationIndex,
-          currentStopIndex,
-          currentStopAddress,
-          colors: { primary: c.primary, primaryDark: c.primaryDark, success: c.successStrong, origin: '#7C3AED' },
-          labels: {
-            line: t('routeDetail.legendLine', { code: lineCode }),
-            you: t('routeDetail.legendYou'),
-            origin: t('routeDetail.legendOrigin'),
-            stop: t('routeDetail.mapStop'),
-            address: t('routeDetail.mapAddress'),
-            mapUnavailable: t('routeDetail.mapUnavailable'),
-          },
-        })
-      )
-    : '';
+  const mapData = hasStops
+    ? buildMapData({
+        stops,
+        shape,
+        pois,
+        vehicles,
+        boardingIndex,
+        destinationIndex,
+        currentStopIndex,
+        currentStopAddress,
+        colors: { line: c.primary, ...MAP_MARKER_COLORS },
+        labels: {
+          line: t('routeDetail.legendLine', { code: lineCode }),
+          you: t('routeDetail.legendYou'),
+          origin: t('routeDetail.legendOrigin'),
+          destination: t('routeDetail.legendDestination'),
+          stop: t('routeDetail.mapStop'),
+          address: t('routeDetail.mapAddress'),
+          mapUnavailable: t('routeDetail.mapUnavailable'),
+        },
+      })
+    : null;
+  const dataScript = mapData ? buildPageCall('setData', mapData) : '';
+  // Traçado real só existe se passou na validação; senão a linha fica ausente e avisamos.
+  const hasRealShape = mapData?.shapeStatus === 'ok';
+  const showShapeNotice = hasStops && !hasRealShape;
 
   const run = useCallback((script: string) => {
     webViewRef.current?.injectJavaScript(script);
@@ -145,6 +156,7 @@ export function RouteMap({
   }, [readyCount, mapType, run]);
 
   return (
+    <View>
     <View style={[styles.container, { height }]} accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
       {hasStops ? (
         <WebView
@@ -183,24 +195,30 @@ export function RouteMap({
       ) : null}
 
       <View style={[styles.legend, { backgroundColor: c.surface }]} accessible={false} importantForAccessibility="no-hide-descendants">
-        <View style={styles.legendRow}>
-          <View style={[styles.legendLine, { backgroundColor: c.primary }]} />
-          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendLine', { code: lineCode })}</AccessibleText>
-        </View>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: c.primaryDark }]} />
-          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendYou')}</AccessibleText>
-        </View>
+        {hasRealShape ? (
+          <View style={styles.legendRow}>
+            <View style={[styles.legendLine, { backgroundColor: c.primary }]} />
+            <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendLine', { code: lineCode })}</AccessibleText>
+          </View>
+        ) : null}
+        {user ? (
+          <View style={styles.legendRow}>
+            <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.you, borderColor: '#FFFFFF' }]} />
+            <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendYou')}</AccessibleText>
+          </View>
+        ) : null}
         {boardingIndex != null && boardingIndex >= 0 ? (
           <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: '#7C3AED' }]} />
+            <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.origin, borderColor: MAP_MARKER_COLORS.originRing, borderWidth: 2.5 }]} />
             <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendOrigin')}</AccessibleText>
           </View>
         ) : null}
-        <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: c.successStrong }]} />
-          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendDestination')}</AccessibleText>
-        </View>
+        {destinationIndex != null && destinationIndex >= 0 ? (
+          <View style={styles.legendRow}>
+            <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.destination, borderColor: '#FFFFFF' }]} />
+            <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendDestination')}</AccessibleText>
+          </View>
+        ) : null}
       </View>
 
       <View style={[styles.mapTypeSelector, { backgroundColor: c.surface }]} accessibilityRole="tablist">
@@ -228,6 +246,13 @@ export function RouteMap({
         </View>
       ) : null}
     </View>
+
+    {showShapeNotice ? (
+      <View style={styles.notice}>
+        <InlineMessage message={t('routeDetail.shapeUnavailable')} tone="info" />
+      </View>
+    ) : null}
+    </View>
   );
 }
 
@@ -236,7 +261,8 @@ const styles = StyleSheet.create({
   legend: { position: 'absolute', top: 10, right: 10, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, gap: 3 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendLine: { width: 14, height: 4, borderRadius: 2 },
-  legendDot: { width: 9, height: 9, borderRadius: 5 },
+  legendDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
+  notice: { paddingHorizontal: 16, paddingTop: 10 },
   legendText: { fontSize: 11 },
   badge: { position: 'absolute', left: 10, bottom: 10, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
   mapTypeSelector: { position: 'absolute', top: 10, left: 10, flexDirection: 'row', borderRadius: 10, padding: 3, gap: 3 },

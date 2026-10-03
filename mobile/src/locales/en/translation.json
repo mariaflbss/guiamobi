@@ -312,6 +312,8 @@
     "loadError": "Could not load the line details.",
     "legendLine": "Line {{code}}",
     "legendYou": "You",
+    "legendOrigin": "Origin",
+    "shapeUnavailable": "The real street route of this line is not available in the data. Only the stops are shown, not joined by a straight line.",
     "mapStop": "Stop",
     "mapAddress": "Address",
     "mapUnavailable": "Could not load the map. Check your internet connection.",
@@ -321,8 +323,7 @@
       "square": "Square",
       "pharmacy": "Pharmacy",
       "school": "School"
-    },
-    "legendOrigin": "Origin"
+    }
   },
   "tracking": {
     "title": "Trip in progress - Line {{code}}",
@@ -346,9 +347,7 @@
     "approaching": "You are getting close to your destination: {{name}}.",
     "arrived": "You have arrived at your destination: {{name}}.",
     "mapLabel": "Schematic map of the trip on line {{code}}",
-    "mins": "~{{count}} min",
-    "expandPanel": "Expand trip panel",
-    "collapsePanel": "Collapse trip panel"
+    "mins": "~{{count}} min"
   },
   "stopAlert": {
     "title": "Get ready!",
