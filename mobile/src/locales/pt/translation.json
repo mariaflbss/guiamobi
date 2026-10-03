@@ -312,13 +312,17 @@
     "loadError": "Não foi possível carregar os detalhes da linha.",
     "legendLine": "Linha {{code}}",
     "legendYou": "Você",
+    "mapStop": "Parada",
+    "mapAddress": "Endereço",
+    "mapUnavailable": "Não foi possível carregar o mapa. Verifique sua conexão com a internet.",
     "poi": {
       "hospital": "Hospital",
       "bank": "Banco",
       "square": "Praça",
       "pharmacy": "Farmácia",
       "school": "Escola"
-    }
+    },
+    "legendOrigin": "Origem"
   },
   "tracking": {
     "title": "Viagem em andamento - Linha {{code}}",
@@ -342,7 +346,9 @@
     "approaching": "Você está chegando ao seu destino: {{name}}.",
     "arrived": "Você chegou ao seu destino: {{name}}.",
     "mapLabel": "Mapa esquemático da viagem na linha {{code}}",
-    "mins": "~{{count}} min"
+    "mins": "~{{count}} min",
+    "expandPanel": "Expandir painel da viagem",
+    "collapsePanel": "Recolher painel da viagem"
   },
   "stopAlert": {
     "title": "Prepare-se!",

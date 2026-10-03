@@ -1,65 +1,51 @@
-import React, { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
-import MapView, { MapType, Marker, Polyline } from 'react-native-maps';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, StyleSheet, View } from 'react-native';
+import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { useTranslation } from 'react-i18next';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { AccessibleText } from './AccessibleText';
+import { MAP_REFERER_URL } from '../constants/config';
+import { MAP_HTML } from './map/mapHtml';
+import { buildMapData, buildPageCall, MapPoi, MapStop, MapVehicle, normalizeBaseUrl } from './map/mapPayload';
 import { Coordinates } from '../types/location';
 
-interface VehiclePosition {
-  id: string;
-  latitude: number;
-  longitude: number;
-}
-
-interface PoiMarker {
-  id: string;
-  category: 'hospital' | 'bank' | 'square' | 'pharmacy' | 'school';
-  name: string | null;
-  latitude: number;
-  longitude: number;
-}
-
 interface RouteMapProps {
-  stops: Coordinates[];
+  stops: MapStop[];
   lineCode: string;
   boardingIndex?: number;
   destinationIndex?: number;
-  /** Índice da parada atual/mais próxima dentro de `stops` (US09: "parada atual"). */
   currentStopIndex?: number;
-  /** Posição do usuário (GPS do aparelho), quando houver. */
   user?: Coordinates | null;
-  /** Pontos reais do traçado da linha (GTFS shapes.txt), quando disponíveis. Sem isso, nenhuma linha é desenhada entre as paradas. */
   shape?: Coordinates[];
-  /** Pontos de referência reais (OpenStreetMap): hospitais, bancos, praças... */
-  pois?: PoiMarker[];
-  /** Endereço real (rua/número) da parada atual/próxima, mostrado ao tocar no marcador. */
+  pois?: MapPoi[];
   currentStopAddress?: string;
-  /** Posições reais de veículos (GTFS-Realtime Vehicle Positions), quando a fonte estiver disponível. */
-  vehicles?: VehiclePosition[];
+  vehicles?: MapVehicle[];
   height?: number;
   accessibilityLabel: string;
-  /** Texto do selo no canto inferior esquerdo (ex.: "GPS do aparelho"). */
   badge?: string;
 }
 
-const MAP_TYPES: { key: MapType; labelKey: string }[] = [
+const MAP_TYPES = [
   { key: 'standard', labelKey: 'routeDetail.mapStandard' },
   { key: 'satellite', labelKey: 'routeDetail.mapSatellite' },
   { key: 'hybrid', labelKey: 'routeDetail.mapHybrid' },
-];
+] as const;
+type MapTypeKey = (typeof MAP_TYPES)[number]['key'];
+
+// Origem do documento do WebView: faz o Android enviar o Referer exigido pelos
+// servidores de tiles do OpenStreetMap (sem ele, os tiles vêm bloqueados/vazios).
+const MAP_BASE_URL = normalizeBaseUrl(MAP_REFERER_URL);
 
 /**
- * Mapa real da linha (US09), usando react-native-maps. Mostra as paradas
- * REAIS recebidas em `stops` (nunca coordenadas inventadas), a localização
- * do usuário quando disponível, e o traçado real da linha (GTFS
- * shapes.txt) só quando `shape` é fornecido - sem shape, nenhum traço é
- * desenhado entre as paradas, em vez de aproximar com uma linha reta que
- * pareceria um trajeto real sem ser.
+ * Mapa real compatível com Expo Go (Android e iOS), sem Google Maps, sem chave
+ * de API e sem módulo nativo extra: Leaflet embutido no app, desenhado dentro
+ * de um WebView (react-native-webview já faz parte do Expo Go).
  *
- * O único elemento visual novo em relação ao mapa esquemático anterior é o
- * seletor Padrão/Satélite/Híbrido; o cartão de legenda e o selo mantêm a
- * mesma aparência de antes.
+ * - Mapa padrão: OpenStreetMap (com servidores de reserva automáticos).
+ * - Satélite/Híbrido: Esri World Imagery.
+ * - GPS: continua vindo do expo-location (nas telas); aqui só é desenhado.
+ * - Os dados são enviados à página por injectJavaScript: o mapa NÃO recarrega a
+ *   cada posição de GPS/veículo, e o zoom escolhido pela pessoa é preservado.
  */
 export function RouteMap({
   stops,
@@ -79,115 +65,144 @@ export function RouteMap({
   const { t } = useTranslation();
   const { theme } = useAccessibility();
   const c = theme.colors;
-  const [mapType, setMapType] = useState<MapType>('standard');
+  const [mapType, setMapType] = useState<MapTypeKey>('standard');
+  const [readyCount, setReadyCount] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const webViewRef = useRef<WebView>(null);
+  const hasStops = stops.length > 0;
 
-  const initialRegion = useMemo(() => {
-    const points = user ? [...stops, user] : stops;
-    if (points.length === 0) return undefined;
+  // Comando "setData" (paradas, linha, POIs, veículos). É uma string: o efeito
+  // abaixo só roda quando o CONTEÚDO muda, mesmo que as telas recriem os arrays.
+  const dataScript = hasStops
+    ? buildPageCall(
+        'setData',
+        buildMapData({
+          stops,
+          shape,
+          pois,
+          vehicles,
+          boardingIndex,
+          destinationIndex,
+          currentStopIndex,
+          currentStopAddress,
+          colors: { primary: c.primary, primaryDark: c.primaryDark, success: c.successStrong, origin: '#7C3AED' },
+          labels: {
+            line: t('routeDetail.legendLine', { code: lineCode }),
+            you: t('routeDetail.legendYou'),
+            origin: t('routeDetail.legendOrigin'),
+            stop: t('routeDetail.mapStop'),
+            address: t('routeDetail.mapAddress'),
+            mapUnavailable: t('routeDetail.mapUnavailable'),
+          },
+        })
+      )
+    : '';
 
-    const lats = points.map((p) => p.latitude);
-    const lons = points.map((p) => p.longitude);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLon = Math.min(...lons);
-    const maxLon = Math.max(...lons);
+  const run = useCallback((script: string) => {
+    webViewRef.current?.injectJavaScript(script);
+  }, []);
 
-    return {
-      latitude: (minLat + maxLat) / 2,
-      longitude: (minLon + maxLon) / 2,
-      latitudeDelta: Math.max(maxLat - minLat, 0.01) * 1.6,
-      longitudeDelta: Math.max(maxLon - minLon, 0.01) * 1.6,
-    };
-  }, [stops, user]);
+  // A página avisa "ready" (e onLoadEnd também): cada nova carga reenvia tudo.
+  const markReady = useCallback(() => setReadyCount((n) => n + 1), []);
+
+  const handleMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      try {
+        const message = JSON.parse(event.nativeEvent.data);
+        if (message?.type === 'ready') markReady();
+      } catch {
+        // mensagem que não é do mapa: ignora
+      }
+    },
+    [markReady]
+  );
+
+  // Impede que um toque nos créditos do mapa (links) navegue o WebView para fora do mapa.
+  const allowNavigation = useCallback((request: { url: string }) => {
+    const url = request.url ?? '';
+    if (!url || url === 'about:blank' || url.startsWith('data:') || url.startsWith(MAP_BASE_URL)) return true;
+    if (/^https?:/i.test(url)) Linking.openURL(url).catch(() => undefined);
+    return false;
+  }, []);
+
+  useEffect(() => {
+    if (readyCount > 0 && dataScript) {
+      setLoadFailed(false);
+      run(dataScript);
+    }
+  }, [readyCount, dataScript, run]);
+
+  const userLat = user?.latitude;
+  const userLon = user?.longitude;
+  useEffect(() => {
+    if (readyCount === 0) return;
+    run(buildPageCall('setUser', userLat != null && userLon != null ? [userLat, userLon] : null));
+  }, [readyCount, userLat, userLon, run]);
+
+  useEffect(() => {
+    if (readyCount > 0) run(buildPageCall('setMapType', mapType));
+  }, [readyCount, mapType, run]);
 
   return (
-    <View
-      style={[styles.container, { height }]}
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={accessibilityLabel}
-    >
-      {initialRegion ? (
-        <MapView
+    <View style={[styles.container, { height }]} accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
+      {hasStops ? (
+        <WebView
+          key={reloadKey}
+          ref={webViewRef}
           style={StyleSheet.absoluteFill}
-          initialRegion={initialRegion}
-          mapType={mapType}
-          showsUserLocation={Boolean(user)}
-          showsMyLocationButton={false}
-          toolbarEnabled={false}
-          accessible={false}
-          importantForAccessibility="no-hide-descendants"
-        >
-          {shape && shape.length > 1 ? (
-            <Polyline coordinates={shape} strokeColor={c.primary} strokeWidth={5} />
-          ) : null}
+          originWhitelist={['*']}
+          source={{ html: MAP_HTML, baseUrl: MAP_BASE_URL }}
+          javaScriptEnabled
+          domStorageEnabled
+          startInLoadingState
+          scrollEnabled={false}
+          bounces={false}
+          overScrollMode="never"
+          nestedScrollEnabled
+          setSupportMultipleWindows={false}
+          showsHorizontalScrollIndicator={false}
+          showsVerticalScrollIndicator={false}
+          geolocationEnabled={false}
+          accessibilityLabel={accessibilityLabel}
+          onMessage={handleMessage}
+          onLoadEnd={markReady}
+          onError={() => setLoadFailed(true)}
+          onRenderProcessGone={() => {
+            setLoadFailed(false);
+            setReloadKey((k) => k + 1);
+          }}
+          onShouldStartLoadWithRequest={allowNavigation}
+        />
+      ) : null}
 
-          {stops.map((stop, index) => {
-            const isBoarding = index === boardingIndex;
-            const isDestination = index === destinationIndex;
-            const isCurrent = index === currentStopIndex;
-            const pinColor = isDestination ? c.successStrong : isBoarding || isCurrent ? c.primary : c.primaryDark;
-
-            return (
-              <Marker
-                key={`${stop.latitude}-${stop.longitude}-${index}`}
-                coordinate={stop}
-                pinColor={pinColor}
-                title={
-                  isDestination
-                    ? t('routeDetail.legendDestination')
-                    : isBoarding
-                      ? t('routeDetail.legendLine', { code: lineCode })
-                      : undefined
-                }
-                description={isCurrent ? currentStopAddress : undefined}
-              />
-            );
-          })}
-
-          {(pois ?? []).map((poi) => (
-            <Marker
-              key={poi.id}
-              coordinate={poi}
-              pinColor="orange"
-              title={poi.name ?? t(`routeDetail.poi.${poi.category}`)}
-              description={poi.name ? t(`routeDetail.poi.${poi.category}`) : undefined}
-            />
-          ))}
-
-          {(vehicles ?? []).map((vehicle) => (
-            <Marker
-              key={vehicle.id}
-              coordinate={vehicle}
-              pinColor={c.primary}
-              title={t('routeDetail.legendLine', { code: lineCode })}
-            />
-          ))}
-        </MapView>
+      {loadFailed ? (
+        <View style={[styles.failure, { backgroundColor: c.surface }]} accessibilityLiveRegion="polite">
+          <AccessibleText variant="caption" weight="bold" style={styles.failureText}>{t('routeDetail.mapUnavailable')}</AccessibleText>
+        </View>
       ) : null}
 
       <View style={[styles.legend, { backgroundColor: c.surface }]} accessible={false} importantForAccessibility="no-hide-descendants">
         <View style={styles.legendRow}>
           <View style={[styles.legendLine, { backgroundColor: c.primary }]} />
-          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>
-            {t('routeDetail.legendLine', { code: lineCode })}
-          </AccessibleText>
+          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendLine', { code: lineCode })}</AccessibleText>
         </View>
         <View style={styles.legendRow}>
           <View style={[styles.legendDot, { backgroundColor: c.primaryDark }]} />
-          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>
-            {t('routeDetail.legendYou')}
-          </AccessibleText>
+          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendYou')}</AccessibleText>
         </View>
+        {boardingIndex != null && boardingIndex >= 0 ? (
+          <View style={styles.legendRow}>
+            <View style={[styles.legendDot, { backgroundColor: '#7C3AED' }]} />
+            <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendOrigin')}</AccessibleText>
+          </View>
+        ) : null}
         <View style={styles.legendRow}>
           <View style={[styles.legendDot, { backgroundColor: c.successStrong }]} />
-          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>
-            {t('routeDetail.legendDestination')}
-          </AccessibleText>
+          <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendDestination')}</AccessibleText>
         </View>
       </View>
 
-      {/* Único elemento visual novo autorizado nesta rodada: seletor de tipo de mapa. */}
       <View style={[styles.mapTypeSelector, { backgroundColor: c.surface }]} accessibilityRole="tablist">
         {MAP_TYPES.map((option) => {
           const selected = mapType === option.key;
@@ -201,9 +216,7 @@ export function RouteMap({
               style={[styles.mapTypeButton, selected ? { backgroundColor: c.primary } : null]}
               hitSlop={8}
             >
-              <AccessibleText variant="caption" weight="bold" color={selected ? '#FFFFFF' : c.text}>
-                {t(option.labelKey)}
-              </AccessibleText>
+              <AccessibleText variant="caption" weight="bold" color={selected ? '#FFFFFF' : c.text}>{t(option.labelKey)}</AccessibleText>
             </Pressable>
           );
         })}
@@ -211,9 +224,7 @@ export function RouteMap({
 
       {badge ? (
         <View style={[styles.badge, { backgroundColor: c.primaryDark }]} accessible={false} importantForAccessibility="no-hide-descendants">
-          <AccessibleText variant="caption" weight="bold" color="#FFFFFF">
-            {badge}
-          </AccessibleText>
+          <AccessibleText variant="caption" weight="bold" color="#FFFFFF">{badge}</AccessibleText>
         </View>
       ) : null}
     </View>
@@ -222,39 +233,14 @@ export function RouteMap({
 
 const styles = StyleSheet.create({
   container: { width: '100%', overflow: 'hidden' },
-  legend: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    gap: 3,
-  },
+  legend: { position: 'absolute', top: 10, right: 10, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, gap: 3 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendLine: { width: 14, height: 4, borderRadius: 2 },
   legendDot: { width: 9, height: 9, borderRadius: 5 },
   legendText: { fontSize: 11 },
-  badge: {
-    position: 'absolute',
-    left: 10,
-    bottom: 10,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  mapTypeSelector: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    flexDirection: 'row',
-    borderRadius: 10,
-    padding: 3,
-    gap: 3,
-  },
-  mapTypeButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
+  badge: { position: 'absolute', left: 10, bottom: 10, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  mapTypeSelector: { position: 'absolute', top: 10, left: 10, flexDirection: 'row', borderRadius: 10, padding: 3, gap: 3 },
+  mapTypeButton: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  failure: { position: 'absolute', left: 12, right: 12, top: '40%', borderRadius: 10, padding: 10 },
+  failureText: { textAlign: 'center' },
 });

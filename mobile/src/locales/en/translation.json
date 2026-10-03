@@ -312,13 +312,17 @@
     "loadError": "Could not load the line details.",
     "legendLine": "Line {{code}}",
     "legendYou": "You",
+    "mapStop": "Stop",
+    "mapAddress": "Address",
+    "mapUnavailable": "Could not load the map. Check your internet connection.",
     "poi": {
       "hospital": "Hospital",
       "bank": "Bank",
       "square": "Square",
       "pharmacy": "Pharmacy",
       "school": "School"
-    }
+    },
+    "legendOrigin": "Origin"
   },
   "tracking": {
     "title": "Trip in progress - Line {{code}}",
@@ -342,7 +346,9 @@
     "approaching": "You are getting close to your destination: {{name}}.",
     "arrived": "You have arrived at your destination: {{name}}.",
     "mapLabel": "Schematic map of the trip on line {{code}}",
-    "mins": "~{{count}} min"
+    "mins": "~{{count}} min",
+    "expandPanel": "Expand trip panel",
+    "collapsePanel": "Collapse trip panel"
   },
   "stopAlert": {
     "title": "Get ready!",

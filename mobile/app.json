@@ -24,12 +24,6 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Usamos sua localização para sugerir sua origem e calcular rotas de transporte público."
         }
-      ],
-      [
-        "react-native-maps",
-        {
-          "androidGoogleMapsApiKey": "process.env.GOOGLE_MAPS_API_KEY"
-        }
       ]
     ]
   }
