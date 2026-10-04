@@ -291,7 +291,20 @@
     "tabSubtitle": "Sua última busca",
     "tabEmpty": "Você ainda não fez nenhuma busca. Escolha origem e destino na tela inicial para ver as rotas.",
     "tabGoHome": "Buscar uma rota",
-    "chooseAnother": "Buscar outra rota"
+    "chooseAnother": "Buscar outra rota",
+    "lineSearchTitle": "Pesquisar linha",
+    "lineSearchLabel": "Número ou nome da linha",
+    "lineSearchPlaceholder": "Ex.: 101 ou Centro",
+    "lineSearchEmpty": "Nenhuma linha encontrada.",
+    "lineOperational": "Em operação",
+    "lineDelayed": "Atrasada: {{minutes}} min",
+    "lineUnavailable": "Indisponível",
+    "serviceIssueTitle": "Atenção sobre a linha",
+    "serviceIssueBody": "Esta linha possui um aviso operacional. Veja alternativas disponíveis para este trajeto.",
+    "alternativesTitle": "Alternativas disponíveis",
+    "noAlternatives": "Não há outra alternativa disponível para este trajeto no momento.",
+    "viewAlternative": "Ver alternativa",
+    "distanceMetersValue": "{{count}} m"
   },
   "routeDetail": {
     "summary": "{{stops}} paradas · {{minutes}} min",
@@ -360,7 +373,10 @@
     "nearbyLinesTitle": "Linhas próximas",
     "nearbyLinesStop": "Você está a aproximadamente {{distance}} m da parada {{stop}}. Linhas que partem dela:",
     "nearbyLinesLabel": "Linhas próximas da parada {{stop}}",
-    "nearbyReference": "Ponto de referência próximo: {{name}}"
+    "nearbyReference": "Ponto de referência próximo: {{name}}",
+    "atStopTitle": "Linhas disponíveis nesta parada",
+    "atStopBody": "Você está próximo desta parada. Estas linhas partem daqui e podem ser usadas como opções de rota.",
+    "distanceMetersValue": "{{count}} m"
   },
   "stopAlert": {
     "title": "Prepare-se!",

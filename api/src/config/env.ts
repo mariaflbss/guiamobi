@@ -41,7 +41,11 @@ const envSchema = z.object({
   // Qual TransitProvider usar: "auto" (padrão - OTP se configurado, senão
   // GTFS oficial importado se houver, senão a fixture de desenvolvimento),
   // ou forçar um específico ("otp" | "gtfs" | "dev") para testes.
-  TRANSIT_PROVIDER: z.enum(['auto', 'otp', 'gtfs', 'dev']).optional().default('auto'),
+  TRANSIT_PROVIDER: z.enum(['auto', 'google', 'otp', 'gtfs', 'dev']).optional().default('auto'),
+  // Cenário opcional para testar R39/US06 localmente: normal | delayed-101 | unavailable-101.
+  MOCK_TRANSIT_SCENARIO: z.string().optional().default('normal'),
+  // Google Routes API (TRANSIT). A chave fica somente no backend. Vazio = não usa Google.
+  GOOGLE_ROUTES_API_KEY: z.string().optional().default(''),
   // URL base de uma instância própria do OpenTripPlanner (ex.: http://localhost:8080).
   // Vazia = OTP nunca é usado (nenhuma chamada de rede é feita). Ver README
   // de api/src/integrations/transit/ para como preparar essa instância com

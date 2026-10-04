@@ -291,7 +291,20 @@
     "tabSubtitle": "Tu última búsqueda",
     "tabEmpty": "Aún no hiciste ninguna búsqueda. Elige origen y destino en la pantalla de inicio para ver las rutas.",
     "tabGoHome": "Buscar una ruta",
-    "chooseAnother": "Buscar otra ruta"
+    "chooseAnother": "Buscar otra ruta",
+    "lineSearchTitle": "Buscar línea",
+    "lineSearchLabel": "Número o nombre de la línea",
+    "lineSearchPlaceholder": "Ej.: 101 o Centro",
+    "lineSearchEmpty": "No se encontró ninguna línea.",
+    "lineOperational": "En servicio",
+    "lineDelayed": "Retrasada: {{minutes}} min",
+    "lineUnavailable": "No disponible",
+    "serviceIssueTitle": "Aviso sobre la línea",
+    "serviceIssueBody": "Esta línea tiene una alerta operativa. Consulta las alternativas disponibles para este trayecto.",
+    "alternativesTitle": "Alternativas disponibles",
+    "noAlternatives": "No hay otra alternativa disponible para este trayecto en este momento.",
+    "viewAlternative": "Ver alternativa",
+    "distanceMetersValue": "{{count}} m"
   },
   "routeDetail": {
     "summary": "{{stops}} paradas · {{minutes}} min",
@@ -360,7 +373,10 @@
     "nearbyLinesTitle": "Líneas cercanas",
     "nearbyLinesStop": "Estás a unos {{distance}} m de la parada {{stop}}. Líneas que salen de ella:",
     "nearbyLinesLabel": "Líneas cercanas a {{stop}}",
-    "nearbyReference": "Punto de referencia cercano: {{name}}"
+    "nearbyReference": "Punto de referencia cercano: {{name}}",
+    "atStopTitle": "Líneas disponibles en esta parada",
+    "atStopBody": "Estás cerca de esta parada. Estas líneas salen de aquí y pueden utilizarse como opciones de ruta.",
+    "distanceMetersValue": "{{count}} m"
   },
   "stopAlert": {
     "title": "¡Prepárate!",

@@ -77,7 +77,7 @@ export interface TransitStatus {
   stopsCount: number;
   importedAt: string | null;
   /** Qual provider está respondendo agora - nunca escondido do app. */
-  provider: 'dev-fixture' | 'official-gtfs' | 'otp';
+  provider: 'dev-fixture' | 'official-gtfs' | 'otp' | 'google-routes';
 }
 
 export interface SearchRoutesQueryInput {
@@ -93,7 +93,7 @@ export interface SearchRoutesQueryInput {
  * oficial (ou por OpenTripPlanner) sem reescrever controller/rotas/app.
  */
 export interface TransitProvider {
-  readonly name: 'dev-fixture' | 'official-gtfs' | 'otp';
+  readonly name: 'dev-fixture' | 'official-gtfs' | 'otp' | 'google-routes';
   getStatus(): Promise<TransitStatus>;
   searchRoutes(query: SearchRoutesQueryInput): Promise<RouteOption[]>;
   searchLines(term: string): Promise<LineSearchResult[]>;

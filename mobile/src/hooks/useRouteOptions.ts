@@ -31,7 +31,22 @@ export function useRouteOptions(origin: Coordinates | null, destination: Coordin
         { latitude: originLat, longitude: originLng },
         { latitude: destLat, longitude: destLng }
       );
-      setOptions(results);
+      const sorted = [...results].sort((a, b) => {
+        const durationDiff = a.durationMinutes - b.durationMinutes;
+        if (durationDiff !== 0) return durationDiff;
+        const toMinutes = (value?: string | null) => {
+          if (!value) return Number.POSITIVE_INFINITY;
+          const [h, m] = value.split(':').map(Number);
+          if (!Number.isFinite(h) || !Number.isFinite(m)) return Number.POSITIVE_INFINITY;
+          const now = new Date();
+          const current = now.getHours() * 60 + now.getMinutes();
+          let departure = h * 60 + m;
+          if (departure < current) departure += 24 * 60;
+          return departure - current;
+        };
+        return toMinutes(a.nextDeparture) - toMinutes(b.nextDeparture);
+      });
+      setOptions(sorted);
       if (results.length === 0) {
         const status = await routesService.getStatus().catch(() => null);
         setHasTransitData(status ? status.hasData : true);

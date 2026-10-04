@@ -291,7 +291,20 @@
     "tabSubtitle": "Your last search",
     "tabEmpty": "You have not searched yet. Choose an origin and destination on the home screen to see routes.",
     "tabGoHome": "Search a route",
-    "chooseAnother": "Search another route"
+    "chooseAnother": "Search another route",
+    "lineSearchTitle": "Search line",
+    "lineSearchLabel": "Line number or name",
+    "lineSearchPlaceholder": "Ex.: 101 or Downtown",
+    "lineSearchEmpty": "No line found.",
+    "lineOperational": "Operational",
+    "lineDelayed": "Delayed: {{minutes}} min",
+    "lineUnavailable": "Unavailable",
+    "serviceIssueTitle": "Line service notice",
+    "serviceIssueBody": "This line has an operational alert. See available alternatives for this trip.",
+    "alternativesTitle": "Available alternatives",
+    "noAlternatives": "No other alternative is available for this trip right now.",
+    "viewAlternative": "View alternative",
+    "distanceMetersValue": "{{count}} m"
   },
   "routeDetail": {
     "summary": "{{stops}} stops · {{minutes}} min",
@@ -360,7 +373,10 @@
     "nearbyLinesTitle": "Nearby lines",
     "nearbyLinesStop": "You are approximately {{distance}} m from {{stop}}. Lines departing from this stop:",
     "nearbyLinesLabel": "Lines near {{stop}}",
-    "nearbyReference": "Nearby reference point: {{name}}"
+    "nearbyReference": "Nearby reference point: {{name}}",
+    "atStopTitle": "Lines available at this stop",
+    "atStopBody": "You are near this stop. These lines depart from here and can be used as route options.",
+    "distanceMetersValue": "{{count}} m"
   },
   "stopAlert": {
     "title": "Get ready!",

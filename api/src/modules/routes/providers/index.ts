@@ -4,10 +4,12 @@ import { DevFixtureProvider } from './devFixtureProvider';
 import { GtfsDatabaseProvider } from './gtfsDatabaseProvider';
 import { OtpRoutingProvider } from './otpRoutingProvider';
 import { TransitProvider } from './types';
+import { GoogleRoutesProvider } from './googleRoutesProvider';
 
 const devFixtureProvider = new DevFixtureProvider();
 const gtfsDatabaseProvider = new GtfsDatabaseProvider();
 const otpRoutingProvider = env.OTP_URL ? new OtpRoutingProvider() : null;
+const googleRoutesProvider = env.GOOGLE_ROUTES_API_KEY ? new GoogleRoutesProvider() : null;
 
 /**
  * Escolhe qual TransitProvider atende a requisição atual, na ordem pedida
@@ -20,11 +22,15 @@ const otpRoutingProvider = env.OTP_URL ? new OtpRoutingProvider() : null;
  * testes); o padrão é "auto".
  */
 export async function selectTransitProvider(): Promise<TransitProvider> {
+  if (env.TRANSIT_PROVIDER === 'google' && googleRoutesProvider) return googleRoutesProvider;
   if (env.TRANSIT_PROVIDER === 'otp' && otpRoutingProvider) return otpRoutingProvider;
   if (env.TRANSIT_PROVIDER === 'gtfs') return gtfsDatabaseProvider;
   if (env.TRANSIT_PROVIDER === 'dev') return devFixtureProvider;
 
-  // auto:
+  // auto: Google Routes é a primeira fonte para cálculo de viagens quando configurada.
+  // Catálogo/detalhe continuam dependendo de GTFS/fixture pelos métodos específicos.
+  if (googleRoutesProvider) return googleRoutesProvider;
+
   if (otpRoutingProvider) {
     const status = await otpRoutingProvider.getStatus();
     if (status.hasData) return otpRoutingProvider;

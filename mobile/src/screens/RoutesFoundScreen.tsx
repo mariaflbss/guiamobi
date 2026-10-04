@@ -70,6 +70,10 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
       stopsCount: option.stopsCount,
       nextDeparture: option.nextDeparture,
       destinationLabel: destination.label,
+      originLatitude: origin.latitude,
+      originLongitude: origin.longitude,
+      destinationLatitude: destination.latitude,
+      destinationLongitude: destination.longitude,
     });
   }
 
@@ -110,7 +114,7 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
               {t('routes.foundCount', { count: options.length })}
             </AccessibleText>
             {options.map((option, index) => (
-              <RouteOptionCard key={option.lineId} option={option} fastest={index === 0} onOpen={() => openDetail(option)} />
+              <RouteOptionCard key={`${option.lineId}-${option.boardingStop.id}-${option.alightingStop.id}`} option={option} fastest={index === 0} onOpen={() => openDetail(option)} />
             ))}
           </>
         )

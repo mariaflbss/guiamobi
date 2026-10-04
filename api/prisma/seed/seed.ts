@@ -16,13 +16,10 @@ import { AVERAGE_BUS_SPEED_KMH, REAL_LINE_ROUTES, TERMINAL_CENTRAL } from './rea
  * forma confiável como texto simples (ver README em
  * api/src/integrations/transit/ para os detalhes e os próximos passos).
  *
- * LINHAS DE DEMONSTRAÇÃO (só se ALLOW_DEMO_TRANSIT_DATA=true): duas linhas
- * fictícias ("DEMO-A"/"DEMO-B"), com paradas e coordenadas inventadas, só
- * para exercitar localmente o algoritmo de busca de rotas por
- * origem/destino (que depende de paradas com coordenadas). NUNCA usam
- * números de linha reais e NUNCA são criadas em produção - o próprio
- * algoritmo de busca (routes.service.ts) também ignora linhas não-oficiais
- * a menos que essa mesma variável esteja ligada.
+ * A fixture usa linhas reais de SJC com nomes, itinerários e horários
+ * retirados dos PDFs oficiais, mas as coordenadas de alguns pontos e os
+ * minutos entre pontos são aproximações exclusivamente para teste local.
+ * Isso fica identificado no README da API e no código-fonte da fixture.
  */
 
 const prisma = new PrismaClient();
@@ -73,8 +70,8 @@ async function main() {
   }
   console.log('✅ Linhas oficiais cadastradas (sem paradas/horários ainda).');
 
-  // ----- Trajeto real (ida e volta) para um subconjunto verificado de linhas -----
-  // Ver realLineRoutes.ts para as fontes de cada coordenada e horário.
+  // ----- Fixture baseada em dados publicados pela Prefeitura -----
+  // Ver realLineRoutes.ts para as fontes de cada linha, itinerário e horário.
   // Sempre populado (dado real, não depende de ALLOW_DEMO_TRANSIT_DATA).
   console.log(`🌱 Populando trajeto real para ${REAL_LINE_ROUTES.length} linha(s) verificada(s)...`);
   const terminalCentral = await upsertStop(TERMINAL_CENTRAL.name, TERMINAL_CENTRAL.latitude, TERMINAL_CENTRAL.longitude);
@@ -88,11 +85,48 @@ async function main() {
       continue;
     }
 
-    const destinationStop = await upsertStop(
-      route.destinationStop.name,
-      route.destinationStop.latitude,
-      route.destinationStop.longitude
-    );
+    const routeStops = [
+      TERMINAL_CENTRAL,
+      ...(route.intermediateStops ?? []),
+      route.destinationStop,
+      ...(route.intermediateStops ?? []).slice().reverse(),
+      TERMINAL_CENTRAL,
+    ];
+
+    const preparedStops = routeStops.map((stop) => ({
+      stop,
+      minutesFromStart: 0,
+    }));
+
+    for (let i = 1; i < preparedStops.length; i += 1) {
+      const previous = preparedStops[i - 1].stop;
+      const current = preparedStops[i].stop;
+      const distanceMeters = haversineDistanceMeters(
+        previous.latitude,
+        previous.longitude,
+        current.latitude,
+        current.longitude
+      );
+      preparedStops[i].minutesFromStart = preparedStops[i - 1].minutesFromStart +
+        Math.max(1, Math.round((distanceMeters / 1000 / AVERAGE_BUS_SPEED_KMH) * 60));
+    }
+
+    // Remove paradas de uma execução anterior desta mesma linha, para o
+    // seed ser reexecutável sem duplicar.
+    await prisma.lineStop.deleteMany({ where: { lineId: line.id } });
+
+    for (let sequence = 0; sequence < preparedStops.length; sequence += 1) {
+      const prepared = preparedStops[sequence];
+      const stop = await upsertStop(prepared.stop.name, prepared.stop.latitude, prepared.stop.longitude);
+      await prisma.lineStop.create({
+        data: {
+          lineId: line.id,
+          stopId: stop.id,
+          sequence,
+          minutesFromStart: prepared.minutesFromStart,
+        },
+      });
+    }
 
     const distanceMeters = haversineDistanceMeters(
       TERMINAL_CENTRAL.latitude,
@@ -100,23 +134,8 @@ async function main() {
       route.destinationStop.latitude,
       route.destinationStop.longitude
     );
-    const legMinutes = Math.round((distanceMeters / 1000 / AVERAGE_BUS_SPEED_KMH) * 60);
-
-    // Remove paradas de uma execução anterior desta mesma linha, para o
-    // seed ser reexecutável sem duplicar.
-    await prisma.lineStop.deleteMany({ where: { lineId: line.id } });
-
-    // Ida e volta: Terminal Central (0) -> destino real (1) -> Terminal Central de novo (2),
-    // reaproveitando a mesma parada real para representar o retorno.
-    await prisma.lineStop.create({
-      data: { lineId: line.id, stopId: terminalCentral.id, sequence: 0, minutesFromStart: 0 },
-    });
-    await prisma.lineStop.create({
-      data: { lineId: line.id, stopId: destinationStop.id, sequence: 1, minutesFromStart: legMinutes },
-    });
-    await prisma.lineStop.create({
-      data: { lineId: line.id, stopId: terminalCentral.id, sequence: 2, minutesFromStart: legMinutes * 2 },
-    });
+    const destinationIndex = (route.intermediateStops?.length ?? 0) + 1;
+    const legMinutes = preparedStops[destinationIndex]?.minutesFromStart ?? 0;
 
     if (route.weekdayDepartures?.length) {
       await prisma.transitDeparture.deleteMany({ where: { lineId: line.id, dayType: 'WEEKDAY' } });
@@ -130,7 +149,7 @@ async function main() {
     }
 
     console.log(
-      `   ✓ Linha ${route.code}: Terminal Central ↔ ${route.destinationStop.name} (~${(distanceMeters / 1000).toFixed(1)} km, ~${legMinutes} min estimados por trecho)${route.weekdayDepartures ? `, ${route.weekdayDepartures.length} horários reais (dias úteis)` : ''}`
+      `   ✓ Linha ${route.code}: Terminal Central ↔ ${route.destinationStop.name} (~${(distanceMeters / 1000).toFixed(1)} km, ~${legMinutes} min estimados por trecho)${route.weekdayDepartures ? `, ${route.weekdayDepartures.length} horários publicados usados no mock` : ''}`
     );
   }
 

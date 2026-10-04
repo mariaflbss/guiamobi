@@ -17,11 +17,11 @@ const MAX_WALK_DISTANCE_METERS = 1200;
 /**
  * Provider de DESENVOLVIMENTO: lê o catálogo de 100 linhas oficiais
  * (nome/código, copiados da página da Prefeitura de SJC) e o trajeto
- * manualmente verificado de 3 delas (ver api/prisma/seed/realLineRoutes.ts).
+ * baseado nos PDFs oficiais de 5 delas (ver api/prisma/seed/realLineRoutes.ts).
  *
  * ISSO NÃO É A REDE COMPLETA DE SÃO JOSÉ DOS CAMPOS. Serve só para provar
  * localmente que a busca de rotas, a ordenação por duração e a busca por
- * número/nome funcionam de ponta a ponta com coordenadas e horários reais,
+ * número/nome funcionam de ponta a ponta com horários publicados e coordenadas de referência,
  * enquanto o feed GTFS oficial não está acessível (ver README de
  * api/src/integrations/transit/). Nunca é escolhido automaticamente se
  * houver dado OFFICIAL_GTFS carregado - ver providers/index.ts.
@@ -72,10 +72,13 @@ export class DevFixtureProvider implements TransitProvider {
     const options: RouteOption[] = [];
 
     for (const line of lines) {
-      if (line.status?.status === 'UNAVAILABLE') continue;
+      const effectiveStatus = getMockStatus(line.code, line.status?.status);
+      if (effectiveStatus === 'UNAVAILABLE') continue;
 
       const boarding = findNearestStop(line.stops, query.originLat, query.originLng);
-      const alighting = findNearestStop(line.stops, query.destinationLat, query.destinationLng);
+      const alighting = boarding
+        ? findNearestStopAfterSequence(line.stops, query.destinationLat, query.destinationLng, boarding.lineStop.sequence)
+        : null;
 
       if (!boarding || !alighting) continue;
       if (boarding.distanceMeters > MAX_WALK_DISTANCE_METERS) continue;
@@ -85,7 +88,7 @@ export class DevFixtureProvider implements TransitProvider {
       const travelMinutes = alighting.lineStop.minutesFromStart - boarding.lineStop.minutesFromStart;
       const walkMinutes = estimateWalkMinutes(boarding.distanceMeters + alighting.distanceMeters);
       const stopsCount = alighting.lineStop.sequence - boarding.lineStop.sequence;
-      const delayMinutes = line.status?.status === 'DELAYED' ? line.status.delayMinutes ?? 0 : 0;
+      const delayMinutes = effectiveStatus === 'DELAYED' ? (line.status?.delayMinutes ?? 5) : 0;
 
       options.push({
         lineId: line.id,
@@ -137,8 +140,8 @@ export class DevFixtureProvider implements TransitProvider {
       lineId: line.id,
       lineCode: line.code,
       lineName: line.name,
-      status: (line.status?.status ?? 'OPERATIONAL') as LineSearchResult['status'],
-      delayMinutes: line.status?.status === 'DELAYED' ? line.status.delayMinutes ?? null : null,
+      status: getMockStatus(line.code, line.status?.status) as LineSearchResult['status'],
+      delayMinutes: getMockStatus(line.code, line.status?.status) === 'DELAYED' ? (line.status?.delayMinutes ?? 5) : null,
       hasRouteData: line._count.stops > 0,
       officialSourceUrl: line.officialSourceUrl,
     }));
@@ -153,7 +156,8 @@ export class DevFixtureProvider implements TransitProvider {
     const now = new Date();
     const result: NearbyLine[] = [];
     for (const line of lines) {
-      if (line.status?.status === 'UNAVAILABLE') continue;
+      const effectiveStatus = getMockStatus(line.code, line.status?.status);
+      if (effectiveStatus === 'UNAVAILABLE') continue;
       const nearest = findNearestStop(line.stops, latitude, longitude);
       if (!nearest || nearest.distanceMeters > radiusMeters) continue;
       result.push({
@@ -193,8 +197,8 @@ export class DevFixtureProvider implements TransitProvider {
         minutesFromStart: s.minutesFromStart,
         stop: { id: s.stop.id, name: s.stop.name, latitude: s.stop.latitude, longitude: s.stop.longitude },
       })),
-      status: (line.status?.status ?? 'OPERATIONAL') as LineDetail['status'],
-      delayMinutes: line.status?.status === 'DELAYED' ? line.status.delayMinutes ?? null : null,
+      status: getMockStatus(line.code, line.status?.status) as LineDetail['status'],
+      delayMinutes: getMockStatus(line.code, line.status?.status) === 'DELAYED' ? (line.status?.delayMinutes ?? 5) : null,
       statusReason: line.status?.reason ?? null,
       hasRouteData: line.stops.length > 0,
       officialSourceUrl: line.officialSourceUrl,
@@ -222,6 +226,32 @@ async function findNextDeparture(lineId: string, now: Date): Promise<string | nu
 
   const next = departures.find((d) => d.departureTime >= nowLabel);
   return next ? next.departureTime : departures[0].departureTime;
+}
+
+function findNearestStopAfterSequence(
+  lineStops: LineStopWithStop[],
+  latitude: number,
+  longitude: number,
+  minimumSequence: number
+): { lineStop: LineStopWithStop; distanceMeters: number } | null {
+  let nearest: { lineStop: LineStopWithStop; distanceMeters: number } | null = null;
+
+  for (const lineStop of lineStops) {
+    if (lineStop.sequence <= minimumSequence) continue;
+    const distanceMeters = haversineDistanceMeters(latitude, longitude, lineStop.stop.latitude, lineStop.stop.longitude);
+    if (!nearest || distanceMeters < nearest.distanceMeters) {
+      nearest = { lineStop, distanceMeters };
+    }
+  }
+
+  return nearest;
+}
+
+function getMockStatus(lineCode: string, databaseStatus?: string | null): 'OPERATIONAL' | 'DELAYED' | 'UNAVAILABLE' {
+  const scenario = env.MOCK_TRANSIT_SCENARIO;
+  if (scenario === `delayed-${lineCode}`) return 'DELAYED';
+  if (scenario === `unavailable-${lineCode}`) return 'UNAVAILABLE';
+  return (databaseStatus ?? 'OPERATIONAL') as 'OPERATIONAL' | 'DELAYED' | 'UNAVAILABLE';
 }
 
 interface LineStopWithStop {

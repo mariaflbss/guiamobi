@@ -5,6 +5,7 @@ import { routesService } from './routes.service';
 import { AppError } from '../../middleware/errorHandler';
 import { getRealtimeProvider } from '../../integrations/gtfsRealtime';
 import { prisma } from '../../database/prisma';
+import { env } from '../../config/env';
 
 const lineIdParamsSchema = z.object({ lineId: z.string().min(1) });
 
@@ -78,8 +79,30 @@ export const routesController = {
    */
   async serviceAlerts(request: FastifyRequest, reply: FastifyReply) {
     const { lineId } = lineIdParamsSchema.parse(request.params);
-    const line = await prisma.transitLine.findUnique({ where: { id: lineId }, select: { gtfsRouteId: true } });
+    // Opções calculadas pela Google usam IDs virtuais e não existem no catálogo local.
+    // Não inventamos alerta: a ausência de dado operacional da Google significa sem alerta disponível.
+    if (lineId.startsWith('google:')) {
+      return reply.status(200).send({ available: false, alerts: [] });
+    }
+
+    const line = await prisma.transitLine.findUnique({ where: { id: lineId }, select: { gtfsRouteId: true, code: true } });
     if (!line) throw new AppError('Linha não encontrada.', 404);
+
+    // A fixture permite simular um problema operacional sem apresentar esse
+    // cenário como dado real. O valor fica explícito em MOCK_TRANSIT_SCENARIO.
+    const mockScenario = env.MOCK_TRANSIT_SCENARIO;
+    if (mockScenario === `delayed-${line.code}` || mockScenario === `unavailable-${line.code}`) {
+      return reply.status(200).send({
+        available: true,
+        alerts: [{
+          id: `mock-${line.code}-${mockScenario}`,
+          affectedLineIds: [line.id],
+          headerText: mockScenario.startsWith('delayed-') ? 'Simulação: linha atrasada' : 'Simulação: linha indisponível',
+          descriptionText: 'Cenário de teste local da US06. Não representa uma ocorrência real do transporte.',
+          severity: mockScenario.startsWith('delayed-') ? 'WARNING' : 'CRITICAL',
+        }],
+      });
+    }
 
     const realtime = getRealtimeProvider();
     const availability = await realtime.getAvailability();

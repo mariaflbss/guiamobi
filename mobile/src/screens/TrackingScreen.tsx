@@ -135,6 +135,7 @@ export function TrackingScreen({ route, navigation }: Props) {
   const nextStopForReference = progress ? stops[progress.nextIndex]?.stop : null;
   const nextStopPois = useNearbyPois(nextStopForReference);
   const nearbyLines = useNearbyLines(user);
+  const atStopLines = nearbyLines.filter((item) => item.stop.distanceMeters <= 40);
   const nextStopAddress = useStopAddress(progress ? stops[progress.nextIndex]?.stop : null);
 
   function formatDistance(meters: number | null): string {
@@ -239,18 +240,20 @@ export function TrackingScreen({ route, navigation }: Props) {
               {permissionDenied ? <InlineMessage message={t('tracking.permissionNeeded')} tone="warning" /> : null}
               {!permissionDenied && !user ? <InlineMessage message={t('tracking.locating')} tone="info" /> : null}
 
-              {nearbyLines.length > 0 ? (
-                <Card backgroundColor={c.primarySoft} borderColor={c.primary} style={styles.suggestionCard} accessible accessibilityLiveRegion="polite" accessibilityLabel={t('tracking.nearbyLinesLabel', { stop: nearbyLines[0].stop.name })}>
-                  <AccessibleText variant="label" color={c.primary} weight="bold">{t('tracking.nearbyLinesTitle')}</AccessibleText>
+              {atStopLines.length > 0 ? (
+                <Card backgroundColor={c.primarySoft} borderColor={c.primary} style={styles.suggestionCard} accessible accessibilityLiveRegion="polite" accessibilityLabel={t('tracking.nearbyLinesLabel', { stop: atStopLines[0].stop.name })}>
+                  <AccessibleText variant="label" color={c.primary} weight="bold">{t('tracking.atStopTitle')}</AccessibleText>
                   <AccessibleText variant="caption" color={c.textSecondary} style={styles.referenceText}>
-                    {t('tracking.nearbyLinesStop', { stop: nearbyLines[0].stop.name, distance: Math.round(nearbyLines[0].stop.distanceMeters) })}
+                    {t('tracking.atStopBody')}
                   </AccessibleText>
                   <View style={styles.nearbyLinesWrap}>
-                    {nearbyLines.slice(0, 5).map((item) => (
-                      <View key={`${item.lineId}-${item.stop.id}`} style={[styles.lineChip, { backgroundColor: c.surface, borderColor: c.border }]}>
-                        <AccessibleText variant="caption" weight="extrabold" color={c.primary}>{item.lineCode}</AccessibleText>
-                        <AccessibleText variant="caption" color={c.textSecondary}>{item.lineName}</AccessibleText>
-                      </View>
+                    {atStopLines.slice(0, 5).map((item) => (
+                      <AccessibleButton
+                        key={`${item.lineId}-${item.stop.id}`}
+                        label={`${item.lineCode} — ${item.lineName}`}
+                        variant="secondary"
+                        onPress={() => navigation.navigate('RouteDetail', { lineId: item.lineId, lineCode: item.lineCode, lineName: item.lineName, destinationLabel: item.stop.name })}
+                      />
                     ))}
                   </View>
                 </Card>

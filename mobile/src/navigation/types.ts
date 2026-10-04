@@ -37,6 +37,10 @@ export interface RouteDetailParams {
   stopsCount?: number;
   nextDeparture?: string | null;
   destinationLabel?: string;
+  originLatitude?: number;
+  originLongitude?: number;
+  destinationLatitude?: number;
+  destinationLongitude?: number;
 }
 
 export interface TripSummary {

@@ -64,8 +64,7 @@ responde `available:false` e o app não mostra nenhum veículo/atraso/alerta.
 `GET /geocode/reverse` (endereço real de uma parada) | `GET /poi/nearby` (Overpass/OSM).
 
 ### O que é real e o que é fixture
-- **Fixture de desenvolvimento** (`DEV_FIXTURE`): catálogo de 100 linhas (nome/código da página da
-  Prefeitura) + trajeto simplificado de 3 linhas + 61 horários da linha 323. **Não é a rede completa.**
+- **Fixture de desenvolvimento** (`DEV_FIXTURE`): catálogo de linhas da Prefeitura + trajetos simplificados baseados nos PDFs oficiais para 101, 121, 128, 323 e 103. **Não é a rede completa.**
 - **Nada com `OFFICIAL_GTFS` está carregado** enquanto o feed oficial não for importado.
 
 ---
@@ -183,3 +182,24 @@ As outras ~97 linhas continuam sem paradas cadastradas - permanece o mesmo
 caminho já documentado acima (credenciamento oficial ou transcrição
 manual/OCR dos PDFs) para estendê-las.
 
+
+## Fixture atual da US06 (dados baseados em SJC)
+
+Para a validação local da US06, `DevFixtureProvider` usa um subconjunto de linhas reais da Prefeitura:
+
+- **101 – Represa / Terminal Central** — OSO 48, alteração de 17/01/2026.
+- **121 – Urbanova / Esplanada / Terminal Central** — OSO 68, alteração de 13/04/2026.
+- **128 – Urbanova-Colinas / Terminal Central** — OSO 40, com itinerário e grade publicados pela Prefeitura.
+- 323 e 103 permanecem como fixtures verificadas anteriormente.
+
+Os nomes, vias/locais do itinerário e os horários selecionados vêm dos PDFs oficiais. As coordenadas de alguns pontos e os minutos entre pontos são aproximações para que a busca geográfica possa ser exercitada localmente. Portanto, **não devem ser apresentados como GTFS oficial ou previsão real de viagem**.
+
+O objetivo é testar a UI e o contrato da API sem depender de Google Routes, cartão/billing ou de uma API municipal. Para usar a fixture, mantenha `TRANSIT_PROVIDER=dev` (ou `auto` sem Google/OTP/GTFS configurados) e execute o seed.
+
+Para testar R39/alternativas da US06, `MOCK_TRANSIT_SCENARIO` pode ser:
+
+- `normal`
+- `delayed-101`
+- `unavailable-101`
+
+Esses dois últimos são **somente cenários de teste** e não representam ocorrências reais.
