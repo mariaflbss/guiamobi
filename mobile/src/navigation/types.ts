@@ -66,5 +66,6 @@ export type AppStackParamList = {
   // openKey abre direto uma pergunta (ex.: a Política de Privacidade, a partir do cadastro)
   Help: { openKey?: string } | undefined;
   EditProfile: undefined;
+  ChangePassword: undefined;
   Tutorial: { firstAccess?: boolean } | undefined;
 };

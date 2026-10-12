@@ -8,6 +8,7 @@ import { usersRoutes } from './modules/users/users.routes';
 import { transitRoutes } from './modules/routes/routes.routes';
 import { geocodeRoutes } from './modules/geocode/geocode.routes';
 import { poiRoutes } from './modules/poi/poi.routes';
+import { speechRoutes } from './modules/speech/speech.routes';
 
 /**
  * Monta a aplicação Fastify: plugins, tratamento de erros e rotas.
@@ -38,6 +39,7 @@ export function buildApp() {
   app.register(transitRoutes);
   app.register(geocodeRoutes);
   app.register(poiRoutes);
+  app.register(speechRoutes);
 
   return app;
 }

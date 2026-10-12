@@ -132,7 +132,9 @@
     "deleteConfirmTitle": "Excluir favorito",
     "deleteConfirmMessage": "Tem certeza de que deseja excluir \"{{nickname}}\"?",
     "deleteLabel": "Excluir {{nickname}}",
-    "selectHint": "Toque para escolher se é origem ou destino"
+    "selectHint": "Toque para escolher se é origem ou destino",
+    "duplicateFavorite": "Já existe um favorito com essa categoria e esse endereço.",
+    "saveError": "Não foi possível salvar o favorito. Tente novamente."
   },
   "history": {
     "title": "Histórico",
@@ -142,7 +144,12 @@
     "selectHint": "Toque para repetir esta busca de origem e destino",
     "today": "Hoje",
     "yesterday": "Ontem",
-    "durationShort": "{{count}} min"
+    "durationShort": "{{count}} min",
+    "clearAll": "Apagar todo o histórico",
+    "clearConfirmTitle": "Apagar histórico?",
+    "clearConfirmMessage": "Todas as pesquisas salvas serão removidas. Essa ação não pode ser desfeita.",
+    "clearError": "Não foi possível apagar o histórico. Tente novamente.",
+    "cleared": "Histórico apagado."
   },
   "settings": {
     "title": "Configurações",
@@ -261,7 +268,8 @@
       }
     },
     "listenAnswer": "Ouvir resposta",
-    "listenAnswerHint": "Reproduz a pergunta e a resposta em áudio."
+    "listenAnswerHint": "Reproduz a pergunta e a resposta em áudio.",
+    "stopAudio": "Parar áudio"
   },
   "navigation": {
     "home": "Início",
@@ -324,7 +332,7 @@
     "stopAccessibility": "{{name}}, parada {{index}} de {{total}}",
     "loadError": "Não foi possível carregar os detalhes da linha.",
     "legendLine": "Linha {{code}}",
-    "legendYou": "Você",
+    "legendYou": "Sua localização atual",
     "legendOrigin": "Origem",
     "legendPoi": "Pontos de orientação",
     "legendFavorite": "Favorito",
@@ -342,9 +350,17 @@
       "bank": "Banco",
       "atm": "Caixa eletrônico",
       "supermarket": "Supermercado",
-      "square": "Praça"
+      "square": "Praça",
+      "school": "Escola"
     },
-    "stopDescription": "Parada {{name}} do itinerário selecionado."
+    "stopDescription": "Parada {{name}} do itinerário selecionado.",
+    "favoriteCategories": {
+      "home": "Casa",
+      "school": "Faculdade",
+      "work": "Trabalho",
+      "health": "Saúde",
+      "other": "Outro"
+    }
   },
   "tracking": {
     "title": "Viagem em andamento - Linha {{code}}",
@@ -409,9 +425,9 @@
   },
   "profile": {
     "title": "Editar perfil",
-    "subtitle": "Nome, e-mail, senha e avatar",
-    "avatarSection": "Escolha um avatar",
-    "avatarHint": "Os avatares são só opções visuais e não indicam nenhuma condição.",
+    "subtitle": "Nome, e-mail, foto e segurança da conta",
+    "avatarSection": "Foto de perfil",
+    "avatarHint": "Tire uma foto usando a câmera frontal. A foto fica salva neste aparelho.",
     "avatarSelected": "selecionado",
     "avatarNone": "Sem avatar",
     "name": "Nome",
@@ -421,7 +437,43 @@
     "confirmNewPassword": "Confirmar nova senha",
     "save": "Salvar alterações",
     "saved": "Perfil atualizado.",
-    "nothingChanged": "Nenhuma alteração para salvar."
+    "nothingChanged": "Nenhuma alteração para salvar.",
+    "personalData": "Dados pessoais",
+    "saveProfile": "Salvar perfil",
+    "passwordSection": "Alterar senha",
+    "passwordHelp": "Escolha uma nova senha com pelo menos 8 caracteres.",
+    "changePassword": "Alterar senha",
+    "passwordChanged": "Senha alterada com sucesso.",
+    "profile.subtitle": "Nome, e-mail, foto e segurança da conta",
+    "profile.avatarSection": "Foto de perfil",
+    "profile.avatarHint": "Tire uma foto usando a câmera frontal. A foto fica salva neste aparelho.",
+    "profile.photoTitle": "Foto de perfil",
+    "profile.photoHint": "Use a câmera frontal para tirar sua foto. Você poderá tirar outra foto quando quiser.",
+    "profile.takePhoto": "Tirar foto",
+    "profile.photoSaved": "Foto de perfil salva.",
+    "profile.photoError": "Não foi possível salvar a foto. Tente novamente.",
+    "profile.saveName": "Salvar nome",
+    "profile.passwordCodeIntro": "Para sua segurança, enviaremos um código ao e-mail cadastrado antes de permitir a troca da senha.",
+    "profile.passwordCodeInstructions": "Digite o código recebido por e-mail e defina sua nova senha.",
+    "profile.sendPasswordCode": "Enviar código por e-mail",
+    "profile.passwordCodeSent": "Enviamos as instruções de redefinição para o e-mail cadastrado.",
+    "profile.resendPasswordCode": "Enviar outro código",
+    "photoTitle": "Foto de perfil",
+    "photoHint": "Use a câmera frontal para tirar sua foto. Você poderá tirar outra foto quando quiser.",
+    "takePhoto": "Tirar foto",
+    "photoSaved": "Foto de perfil salva.",
+    "photoError": "Não foi possível salvar a foto. Tente novamente.",
+    "saveName": "Salvar nome",
+    "passwordCodeIntro": "Para sua segurança, enviaremos um código ao e-mail cadastrado antes de permitir a troca da senha.",
+    "passwordCodeInstructions": "Digite o código recebido por e-mail e defina sua nova senha.",
+    "sendPasswordCode": "Enviar código por e-mail",
+    "passwordCodeSent": "Enviamos as instruções de redefinição para o e-mail cadastrado.",
+    "resendPasswordCode": "Enviar outro código",
+    "deletePhoto": "Excluir foto atual",
+    "deletePhotoTitle": "Excluir foto de perfil?",
+    "deletePhotoConfirm": "Excluir a foto de perfil atual? Você poderá tirar outra foto depois.",
+    "photoDeleted": "Foto de perfil excluída.",
+    "photoDeleteError": "Não foi possível excluir a foto. Tente novamente."
   },
   "avatars": {
     "dog": "Avatar de um cachorro marrom com orelhas caídas.",
@@ -493,6 +545,7 @@
         "title": "Modo Simples",
         "description": "Se preferir menos informações na tela, ative o Modo Simples em Configurações. Você escolhe o destino com botões grandes, a partir dos seus locais favoritos."
       }
-    }
+    },
+    "stopAudio": "Parar áudio"
   }
 }

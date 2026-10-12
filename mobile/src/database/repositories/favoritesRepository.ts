@@ -27,9 +27,18 @@ export const favoritesRepository = {
     const createdAt = new Date().toISOString();
 
     await withDatabase(async (db) => {
+      const existing = await db.getAllAsync<{ address: string }>(
+        'SELECT address FROM favorites WHERE user_id = ? AND kind = ?',
+        [userId, input.kind]
+      );
+      const normalizedAddress = normalizeAddress(input.address);
+      if (existing.some((row) => normalizeAddress(row.address) === normalizedAddress)) {
+        throw new Error('FAVORITE_DUPLICATE');
+      }
+
       await db.runAsync(
         'INSERT INTO favorites (id, user_id, nickname, address, latitude, longitude, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [id, userId, input.nickname, input.address, input.coordinates.latitude, input.coordinates.longitude, input.kind, createdAt]
+        [id, userId, input.nickname, input.address.trim().replace(/\s+/g, ' '), input.coordinates.latitude, input.coordinates.longitude, input.kind, createdAt]
       );
     });
 
@@ -103,6 +112,15 @@ function mapRowToFavorite(row: FavoriteRow): FavoritePlace {
     kind: (row.kind as FavoriteKind) ?? 'other',
     createdAt: row.created_at,
   };
+}
+
+function normalizeAddress(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase();
 }
 
 function generateId(): string {

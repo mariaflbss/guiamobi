@@ -46,6 +46,8 @@ const envSchema = z.object({
   MOCK_TRANSIT_SCENARIO: z.string().optional().default('normal'),
   // Google Routes API (TRANSIT). A chave fica somente no backend. Vazio = não usa Google.
   GOOGLE_ROUTES_API_KEY: z.string().optional().default(''),
+  // Google Cloud Text-to-Speech: chave restrita à API e mantida apenas no backend.
+  GOOGLE_TTS_API_KEY: z.string().optional().default(''),
   // URL base de uma instância própria do OpenTripPlanner (ex.: http://localhost:8080).
   // Vazia = OTP nunca é usado (nenhuma chamada de rede é feita). Ver README
   // de api/src/integrations/transit/ para como preparar essa instância com

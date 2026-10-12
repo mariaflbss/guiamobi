@@ -33,9 +33,13 @@ let lastRequestAt = 0;
 
 const OSM_FILTERS: Record<PoiCategory, string> = {
   hospital: '["amenity"="hospital"]',
+  clinic: '["amenity"="clinic"]',
   bank: '["amenity"="bank"]',
+  atm: '["amenity"="atm"]',
   square: '["place"="square"]',
   pharmacy: '["amenity"="pharmacy"]',
+  dentist: '["amenity"="dentist"]',
+  supermarket: '["shop"="supermarket"]',
   school: '["amenity"="school"]',
 };
 
@@ -63,9 +67,13 @@ function categoryOf(tags: Record<string, string> | undefined, wanted: PoiCategor
   if (!tags) return null;
   for (const category of wanted) {
     if (category === 'hospital' && tags.amenity === 'hospital') return category;
+    if (category === 'clinic' && tags.amenity === 'clinic') return category;
     if (category === 'bank' && tags.amenity === 'bank') return category;
+    if (category === 'atm' && tags.amenity === 'atm') return category;
     if (category === 'square' && tags.place === 'square') return category;
     if (category === 'pharmacy' && tags.amenity === 'pharmacy') return category;
+    if (category === 'dentist' && tags.amenity === 'dentist') return category;
+    if (category === 'supermarket' && tags.shop === 'supermarket') return category;
     if (category === 'school' && tags.amenity === 'school') return category;
   }
   return null;
@@ -80,8 +88,8 @@ export const poiService = {
   async nearby(lat: number, lng: number, radius: number, categories: PoiCategory[]): Promise<PoiItem[]> {
     if (categories.length === 0) return [];
 
-    // Arredonda a ~110 m para reaproveitar o cache entre buscas muito próximas
-    const key = `${lat.toFixed(3)},${lng.toFixed(3)},${radius},${[...categories].sort().join('|')}`;
+    // Arredonda a ~11 m para reduzir erros de cobertura na borda do raio de 1 km
+    const key = `${lat.toFixed(4)},${lng.toFixed(4)},${radius},${[...categories].sort().join('|')}`;
     const cached = cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.items;
 

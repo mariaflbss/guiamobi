@@ -132,7 +132,9 @@
     "deleteConfirmTitle": "Delete favorite",
     "deleteConfirmMessage": "Are you sure you want to delete \"{{nickname}}\"?",
     "deleteLabel": "Delete {{nickname}}",
-    "selectHint": "Tap to choose whether it is origin or destination"
+    "selectHint": "Tap to choose whether it is origin or destination",
+    "duplicateFavorite": "A favorite with this category and address already exists.",
+    "saveError": "Could not save the favorite. Please try again."
   },
   "history": {
     "title": "History",
@@ -142,7 +144,12 @@
     "selectHint": "Tap to repeat this origin and destination search",
     "today": "Today",
     "yesterday": "Yesterday",
-    "durationShort": "{{count}} min"
+    "durationShort": "{{count}} min",
+    "clearAll": "Clear all history",
+    "clearConfirmTitle": "Clear history?",
+    "clearConfirmMessage": "All saved searches will be removed. This action cannot be undone.",
+    "clearError": "Could not clear history. Please try again.",
+    "cleared": "History cleared."
   },
   "settings": {
     "title": "Settings",
@@ -261,7 +268,8 @@
     "listenAnswer": "Listen to answer",
     "listenAnswerHint": "Plays the question and answer aloud.",
     "floatingLabel": "Help",
-    "floatingHint": "Opens the help and frequently asked questions page."
+    "floatingHint": "Opens the help and frequently asked questions page.",
+    "stopAudio": "Stop audio"
   },
   "navigation": {
     "home": "Home",
@@ -324,7 +332,7 @@
     "stopAccessibility": "{{name}}, stop {{index}} of {{total}}",
     "loadError": "Could not load the line details.",
     "legendLine": "Line {{code}}",
-    "legendYou": "You",
+    "legendYou": "Your current location",
     "legendOrigin": "Origin",
     "legendPoi": "Landmarks",
     "legendFavorite": "Favorite",
@@ -342,9 +350,17 @@
       "bank": "Bank",
       "atm": "ATM",
       "supermarket": "Supermarket",
-      "square": "Square"
+      "square": "Square",
+      "school": "School"
     },
-    "stopDescription": "Stop {{name}} on the selected itinerary."
+    "stopDescription": "Stop {{name}} on the selected itinerary.",
+    "favoriteCategories": {
+      "home": "Home",
+      "school": "School",
+      "work": "Work",
+      "health": "Health",
+      "other": "Other"
+    }
   },
   "tracking": {
     "title": "Trip in progress - Line {{code}}",
@@ -409,9 +425,9 @@
   },
   "profile": {
     "title": "Edit profile",
-    "subtitle": "Name, email, password and avatar",
-    "avatarSection": "Choose an avatar",
-    "avatarHint": "Avatars are only visual options and do not indicate any condition.",
+    "subtitle": "Name, email, photo and account security",
+    "avatarSection": "Profile photo",
+    "avatarHint": "Take a photo using the front camera. The photo is saved on this device.",
     "avatarSelected": "selected",
     "avatarNone": "No avatar",
     "name": "Name",
@@ -421,7 +437,43 @@
     "confirmNewPassword": "Confirm new password",
     "save": "Save changes",
     "saved": "Profile updated.",
-    "nothingChanged": "No changes to save."
+    "nothingChanged": "No changes to save.",
+    "personalData": "Personal information",
+    "saveProfile": "Save profile",
+    "passwordSection": "Change password",
+    "passwordHelp": "Choose a new password with at least 8 characters.",
+    "changePassword": "Change password",
+    "passwordChanged": "Password changed successfully.",
+    "profile.subtitle": "Name, email, photo and account security",
+    "profile.avatarSection": "Profile photo",
+    "profile.avatarHint": "Take a photo using the front camera. The photo is saved on this device.",
+    "profile.photoTitle": "Profile photo",
+    "profile.photoHint": "Use the front camera to take your photo. You can take a new one at any time.",
+    "profile.takePhoto": "Take photo",
+    "profile.photoSaved": "Profile photo saved.",
+    "profile.photoError": "Could not save the photo. Please try again.",
+    "profile.saveName": "Save name",
+    "profile.passwordCodeIntro": "For your security, we will send a code to your registered email before allowing a password change.",
+    "profile.passwordCodeInstructions": "Enter the code received by email and set your new password.",
+    "profile.sendPasswordCode": "Send code by email",
+    "profile.passwordCodeSent": "Password reset instructions were sent to your registered email.",
+    "profile.resendPasswordCode": "Send another code",
+    "photoTitle": "Profile photo",
+    "photoHint": "Use the front camera to take your photo. You can take a new one at any time.",
+    "takePhoto": "Take photo",
+    "photoSaved": "Profile photo saved.",
+    "photoError": "Could not save the photo. Please try again.",
+    "saveName": "Save name",
+    "passwordCodeIntro": "For your security, we will send a code to your registered email before allowing a password change.",
+    "passwordCodeInstructions": "Enter the code received by email and set your new password.",
+    "sendPasswordCode": "Send code by email",
+    "passwordCodeSent": "Password reset instructions were sent to your registered email.",
+    "resendPasswordCode": "Send another code",
+    "deletePhoto": "Delete current photo",
+    "deletePhotoTitle": "Delete profile photo?",
+    "deletePhotoConfirm": "Delete your current profile photo? You can take another photo later.",
+    "photoDeleted": "Profile photo deleted.",
+    "photoDeleteError": "Could not delete the photo. Please try again."
   },
   "avatars": {
     "dog": "Avatar of a brown dog with floppy ears.",
@@ -493,6 +545,7 @@
         "title": "Simple Mode",
         "description": "If you prefer less information on screen, turn on Simple Mode in Settings. You choose the destination with large buttons, from your favorite places."
       }
-    }
+    },
+    "stopAudio": "Stop audio"
   }
 }

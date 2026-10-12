@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const POI_CATEGORIES = ['hospital', 'bank', 'square', 'pharmacy', 'school'] as const;
+export const POI_CATEGORIES = ['hospital', 'clinic', 'bank', 'atm', 'square', 'pharmacy', 'dentist', 'supermarket', 'school'] as const;
 export type PoiCategory = (typeof POI_CATEGORIES)[number];
 
 export const poiQuerySchema = z.object({

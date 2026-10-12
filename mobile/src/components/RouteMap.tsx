@@ -74,7 +74,7 @@ export function RouteMap({
   badge,
 }: RouteMapProps) {
   const { t } = useTranslation();
-  const { theme, speak } = useAccessibility();
+  const { theme, speak, stopSpeech } = useAccessibility();
   const c = theme.colors;
   const [mapType, setMapType] = useState<MapTypeKey>('standard');
   const [readyCount, setReadyCount] = useState(0);
@@ -107,6 +107,7 @@ export function RouteMap({
           mapUnavailable: t('routeDetail.mapUnavailable'),
           unnamedPoi: t('routeDetail.unnamedPoi'),
           favorite: t('routeDetail.favoritePlace'),
+          favoriteCategories: { home: t('favorites.kinds.home'), school: t('favorites.kinds.school'), work: t('favorites.kinds.work'), health: t('favorites.kinds.health'), other: t('favorites.kinds.other') },
           poi: {
             hospital: t('routeDetail.poi.hospital'),
             clinic: t('routeDetail.poi.clinic'),
@@ -116,6 +117,7 @@ export function RouteMap({
             atm: t('routeDetail.poi.atm'),
             supermarket: t('routeDetail.poi.supermarket'),
             square: t('routeDetail.poi.square'),
+            school: t('routeDetail.poi.school'),
           },
         },
       })
@@ -137,11 +139,12 @@ export function RouteMap({
         const message = JSON.parse(event.nativeEvent.data);
         if (message?.type === 'ready') markReady();
         if (message?.type === 'speak' && typeof message.text === 'string') speak(message.text);
+        if (message?.type === 'stopSpeech') stopSpeech();
       } catch {
         // mensagem que não é do mapa: ignora
       }
     },
-    [markReady]
+    [markReady, speak, stopSpeech]
   );
 
   // Impede que um toque nos créditos do mapa (links) navegue o WebView para fora do mapa.

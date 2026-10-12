@@ -3,7 +3,7 @@ import { AccessibilityInfo, StyleSheet, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CommonActions } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { Accessibility, Clock3, Flag, Heart, Lightbulb, MapPin, Route, Volume2 } from 'lucide-react-native';
+import { Accessibility, Clock3, Flag, Heart, Lightbulb, MapPin, Route, Volume2, VolumeX } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -118,7 +118,10 @@ export function TutorialScreen({ navigation, route }: Props) {
         <AccessibleText variant="subtitle" weight="regular" color={c.text} style={styles.description}>
           {description}
         </AccessibleText>
-        <AccessibleButton label={t('tutorial.listen')} icon={Volume2} variant="soft" onPress={() => speak(`${title}. ${description}`)} />
+        <View style={styles.audioActions}>
+          <AccessibleButton label={t('tutorial.listen')} icon={Volume2} variant="soft" onPress={() => speak(`${title}. ${description}`)} />
+          <AccessibleButton label={t('tutorial.stopAudio')} icon={VolumeX} variant="secondary" onPress={() => speechService.stop()} />
+        </View>
       </Card>
 
       <View style={styles.actions}>
@@ -146,6 +149,7 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', gap: 6, marginBottom: 16 },
   dot: { height: 10, borderRadius: 5 },
   card: { padding: 20, gap: 14, alignItems: 'stretch' },
+  audioActions: { gap: 8, marginTop: 4 },
   tile: { width: 76, height: 76, borderRadius: 22, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
   center: { textAlign: 'center' },
   description: { lineHeight: 24 },

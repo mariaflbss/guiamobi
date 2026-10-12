@@ -1,6 +1,5 @@
 import { prisma } from '../../database/prisma';
 import { AppError } from '../../middleware/errorHandler';
-import { hashPassword } from '../../utils/hash';
 import { UpdateProfileBody } from './users.schema';
 
 // Dados públicos do usuário (nunca o hash da senha)
@@ -17,23 +16,11 @@ export const usersService = {
     return user;
   },
 
-  /**
-   * Edição de perfil (nome, e-mail, senha e avatar). Trocar o e-mail exige
-   * que ele não pertença a outra conta; a senha nova é guardada só como hash.
-   */
-  async updateProfile(userId: string, { name, email, password, avatarId }: UpdateProfileBody) {
-    if (email) {
-      const other = await prisma.user.findUnique({ where: { email } });
-      if (other && other.id !== userId) {
-        throw new AppError('Este e-mail já está cadastrado.', 409);
-      }
-    }
-
-    const passwordHash = password ? await hashPassword(password) : undefined;
-
+  /** Atualização direta limitada ao nome; e-mail e senha usam fluxos próprios. */
+  async updateProfile(userId: string, { name }: UpdateProfileBody) {
     return prisma.user.update({
       where: { id: userId },
-      data: { name, email, passwordHash, avatarId },
+      data: { name },
       select: publicUserSelect,
     });
   },

@@ -39,6 +39,8 @@ interface AccessibilityContextValue {
   announce: (message: string, options?: { haptic?: HapticKind }) => void;
   /** Fala o texto SEMPRE (ação explícita do usuário, ex.: "Ouvir explicação"), na velocidade escolhida. */
   speak: (message: string) => void;
+  /** Interrompe imediatamente qualquer fala em andamento. */
+  stopSpeech: () => void;
   /** "Testar feedback": executa a preferência atual (voz, vibração, ambos ou nada). */
   testFeedback: (message: string) => Promise<void>;
 }
@@ -140,6 +142,10 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
     [language]
   );
 
+  const stopSpeech = useCallback(() => {
+    speechService.stop();
+  }, []);
+
   const testFeedback = useCallback(
     (message: string) =>
       feedbackService.test(settingsRef.current.feedbackMode, {
@@ -169,6 +175,7 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
       setHapticsEnabled,
       announce,
       speak,
+      stopSpeech,
       testFeedback,
     }),
     [
@@ -184,6 +191,7 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
       setHapticsEnabled,
       announce,
       speak,
+      stopSpeech,
       testFeedback,
     ]
   );

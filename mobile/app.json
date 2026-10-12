@@ -24,6 +24,12 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Usamos sua localização para sugerir sua origem e calcular rotas de transporte público."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "O GuiaMobi precisa acessar a câmera para você tirar uma foto de perfil."
+        }
       ]
     ]
   }

@@ -33,8 +33,6 @@ export interface ResetPasswordInput {
 }
 
 export interface UpdateProfileInput {
-  name?: string;
-  email?: string;
-  password?: string;
-  avatarId?: string | null;
+  /** A edição direta do perfil permite alterar somente o nome. */
+  name: string;
 }

@@ -20,7 +20,7 @@ const PAGE_SCRIPT = `
 (function () {
   'use strict';
 
-  var DEFAULT_LABELS = { line: '', you: 'You', origin: 'Origin', destination: 'Destination', stop: 'Stop', address: 'Address', mapUnavailable: 'Map unavailable', unnamedPoi: 'Name unavailable', favorite: 'Favorite', poi: {} };
+  var DEFAULT_LABELS = { line: '', you: 'Sua localização atual', origin: 'Origem', destination: 'Destino', stop: 'Parada', address: 'Endereço', mapUnavailable: 'Mapa indisponível', unnamedPoi: 'Nome não disponível', favorite: 'Favorito', favoriteCategories: {}, poi: {} };
   var DEFAULT_COLORS = { line: '#1852A4', you: '#0B2E6B', origin: '#7CC4FA', originRing: '#0F5FA8', destination: '#16A34A', stop: '#64748B', poi: '#B45309', favorite: '#7C3AED' };
 
   var OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
@@ -80,6 +80,9 @@ const PAGE_SCRIPT = `
   }
 
   var map = L.map('map', { zoomControl: true, attributionControl: true, zoomSnap: 0.5, worldCopyJump: false });
+  // Mantém os controles + e − visíveis, sem ficarem escondidos sob o seletor
+  // de mapa (padrão/satélite/híbrido) que ocupa o canto superior esquerdo.
+  map.zoomControl.setPosition('bottomright');
   map.attributionControl.setPrefix(false);
   map.setView([0, 0], 2);
 
@@ -213,6 +216,8 @@ const PAGE_SCRIPT = `
     h.bindPopup(content, { maxWidth: 280, closeButton: true });
     if (speech && speech.text) {
       h.on('click', function () { post({ type: 'speak', text: speech.text }); });
+      // Fechar o balão (inclusive pelo X) interrompe imediatamente a leitura.
+      h.on('popupclose', function () { post({ type: 'stopSpeech' }); });
     }
     return h;
   }
@@ -275,11 +280,12 @@ const PAGE_SCRIPT = `
       var order = d.stops.slice().sort(function (a, b) { return rank(a) - rank(b) || a.index - b.index; });
       order.forEach(function (s) {
         var latlng = [s.lat, s.lon];
-        var title = labels.stop + ' ' + (s.index + 1) + (s.name ? ' - ' + s.name : '');
+        var roleLabel = s.destination ? labels.destination : (s.boarding ? labels.origin : labels.stop + ' ' + (s.index + 1));
+        var placeName = s.name || roleLabel;
+        var title = (s.destination || s.boarding) ? (s.name ? roleLabel + ': ' + s.name : roleLabel) : placeName;
         var lines = [title];
-        if (s.destination) lines.push(labels.destination);
-        else if (s.boarding) lines.push(labels.origin);
-        if (s.address) lines.push(labels.address + ': ' + s.address);
+        if (!(s.destination || s.boarding) && s.name) lines.push(labels.stop + ' ' + (s.index + 1));
+        if (s.address) lines.push(s.address);
         var marker;
         if (s.destination) marker = dot(latlng, 'stops', 10, colors.destination, { color: '#ffffff', weight: 3 });
         else if (s.boarding) marker = dot(latlng, 'stops', 10, colors.origin, { color: colors.originRing, weight: 4 });
@@ -312,7 +318,7 @@ const PAGE_SCRIPT = `
       });
     }
 
-    if (sig('favorites', [d.favorites, labels.favorite])) {
+    if (sig('favorites', [d.favorites, labels.favorite, labels.favoriteCategories])) {
       groups.favorites.clearLayers();
       state.favoritePoints = [];
       (d.favorites || []).forEach(function (f) {
@@ -320,7 +326,8 @@ const PAGE_SCRIPT = `
         state.favoritePoints.push(latlng);
         groups.favorites.addLayer(dot(latlng, 'favorites', 8, colors.favorite, { color: '#ffffff', weight: 2, interactive: false }));
         var title = f.nickname || labels.favorite;
-        var lines = [title, f.address || ''];
+        var category = f.category && labels.favoriteCategories && labels.favoriteCategories[f.category] ? labels.favoriteCategories[f.category] : '';
+        var lines = [title, category, f.address || ''];
         groups.favorites.addLayer(hit(latlng, 'favorites', popupEl(lines), { type: 'favorite', text: title + (f.address ? '. ' + f.address : '') }));
       });
     }
@@ -333,6 +340,7 @@ const PAGE_SCRIPT = `
       });
     }
 
+    if (state.userPos) setUser(state.userPos);
     if (!state.fitted) fitAll(0);
   }
 

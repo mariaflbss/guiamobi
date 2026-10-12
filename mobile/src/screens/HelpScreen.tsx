@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
-import { Accessibility, Bus, ChevronDown, ChevronUp, Lightbulb, Mail, Navigation, Phone, Search, Settings, ShieldCheck } from 'lucide-react-native';
+import { Accessibility, Bus, ChevronDown, ChevronUp, Lightbulb, Mail, Navigation, Phone, Search, Settings, ShieldCheck, VolumeX } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -12,6 +12,7 @@ import { Card } from '../components/Card';
 import { Icon } from '../components/Icon';
 import { InlineMessage } from '../components/InlineMessage';
 import { useAccessibility } from '../contexts/AccessibilityContext';
+import { speechService } from '../services/speech/speechService';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
 import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../constants/config';
 import { AppStackParamList } from '../navigation/types';
@@ -44,6 +45,11 @@ export function HelpScreen({ navigation, route }: Props) {
 
   const hasContact = Boolean(SUPPORT_EMAIL || SUPPORT_PHONE);
 
+  useEffect(() => {
+    speechService.stop();
+    return () => speechService.stop();
+  }, [openKey]);
+
   return (
     <ScreenContainer
       scroll
@@ -74,13 +80,20 @@ export function HelpScreen({ navigation, route }: Props) {
                 <AccessibleText variant="body" color={c.textSecondary} style={styles.answer}>
                   {t(`help.faq.${key}.a`)}
                 </AccessibleText>
-                <AccessibleButton
-                  label={t('help.listenAnswer')}
-                  accessibilityHint={t('help.listenAnswerHint')}
-                  variant="soft"
-                  onPress={() => speak(`${t(`help.faq.${key}.q`)}. ${t(`help.faq.${key}.a`)}`)}
-                  style={styles.listen}
-                />
+                <View style={styles.audioActions}>
+                  <AccessibleButton
+                    label={t('help.listenAnswer')}
+                    accessibilityHint={t('help.listenAnswerHint')}
+                    variant="soft"
+                    onPress={() => speak(`${t(`help.faq.${key}.q`)}. ${t(`help.faq.${key}.a`)}`)}
+                  />
+                  <AccessibleButton
+                    label={t('help.stopAudio')}
+                    icon={VolumeX}
+                    variant="secondary"
+                    onPress={() => speechService.stop()}
+                  />
+                </View>
               </>
             ) : null}
           </Card>
@@ -126,7 +139,7 @@ const styles = StyleSheet.create({
   question: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, minHeight: 64 },
   tile: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   answer: { paddingHorizontal: 14, paddingBottom: 10, paddingLeft: 66 },
-  listen: { marginHorizontal: 14, marginBottom: 14 },
+  audioActions: { marginHorizontal: 14, marginBottom: 14, gap: 8 },
   contact: { padding: 16, gap: 10, marginTop: 10 },
   buttons: { flexDirection: 'row', gap: 12, marginTop: 6 },
 });

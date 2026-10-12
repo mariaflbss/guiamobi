@@ -110,6 +110,14 @@ test('página inicia, expõe window.GM e avisa "ready" ao React Native', () => {
   assert.deepEqual(sent.filter((m) => m.type === 'ready'), [{ type: 'ready' }]);
 });
 
+test('controles de zoom + e − ficam visíveis sem sobrepor o seletor de mapa', () => {
+  const { win } = openPage();
+  const zoomControl = win.document.querySelector('.leaflet-bottom.leaflet-right .leaflet-control-zoom');
+  assert.ok(zoomControl, 'controle de zoom posicionado no canto inferior direito');
+  assert.ok(zoomControl.querySelector('.leaflet-control-zoom-in'), 'botão de aproximar (+) existe');
+  assert.ok(zoomControl.querySelector('.leaflet-control-zoom-out'), 'botão de afastar (−) existe');
+});
+
 test('paradas, linha, POIs e veículos são desenhados nos painéis certos', () => {
   const { win, GM } = openPage();
   GM.setData(dataFor());

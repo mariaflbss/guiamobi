@@ -17,6 +17,7 @@ import { ArrivalScreen } from '../screens/ArrivalScreen';
 import { AddFavoriteScreen } from '../screens/AddFavoriteScreen';
 import { HelpScreen } from '../screens/HelpScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
+import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
 import { TutorialScreen } from '../screens/TutorialScreen';
 import { useAuth } from '../hooks/useAuth';
 
@@ -59,6 +60,7 @@ export function AppNavigator() {
       <Stack.Screen name="AddFavorite" component={AddFavoriteScreen} />
       <Stack.Screen name="Help" component={HelpScreen} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+      <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
       <Stack.Screen name="Tutorial" component={TutorialScreen} initialParams={{ firstAccess: shouldShowTutorial }} />
     </Stack.Navigator>
   );

@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, Check, CircleHelp, Contrast, Lightbulb, LogOut, Moon, Sparkles, Vibrate, Volume2 } from 'lucide-react-native';
@@ -18,6 +18,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
 import { FontSize, SpeechRate, SupportedLanguage } from '../types/settings';
 import { AppStackParamList } from '../navigation/types';
+import { profilePhotoService } from '../services/storage/profilePhotoService';
 
 type SettingsNavigation = NativeStackNavigationProp<AppStackParamList>;
 
@@ -45,6 +46,12 @@ export function SettingsScreen() {
     announce,
   } = useAccessibility();
   const { user, logout } = useAuth();
+  const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
+  useFocusEffect(React.useCallback(() => {
+    let active = true;
+    if (user?.id) profilePhotoService.get(user.id).then(uri => { if (active) setProfilePhotoUri(uri); }).catch(() => {});
+    return () => { active = false; };
+  }, [user?.id]));
   const navigation = useNavigation<SettingsNavigation>();
   useStatusBarStyle('light');
   const c = theme.colors;
@@ -202,7 +209,7 @@ export function SettingsScreen() {
       <NavRow
         title={t('settings.editProfile')}
         description={user ? `${user.name} · ${user.email}` : undefined}
-        leading={<Avatar avatarId={user?.avatarId} size={44} />}
+        leading={<Avatar photoUri={profilePhotoUri} size={44} />}
         onPress={() => navigation.navigate('EditProfile')}
       />
       <NavRow

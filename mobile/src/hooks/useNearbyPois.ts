@@ -10,13 +10,13 @@ import { Coordinates } from '../types/location';
  */
 export function useNearbyPois(center: Coordinates | null | undefined) {
   const [items, setItems] = useState<PoiItem[]>([]);
-  const key = center ? `${center.latitude.toFixed(3)},${center.longitude.toFixed(3)}` : null;
+  const key = center ? `${center.latitude.toFixed(4)},${center.longitude.toFixed(4)}` : null;
 
   useEffect(() => {
     if (!center || !key) return;
     let cancelled = false;
     poiService
-      .nearby(center, 1000, ['hospital', 'clinic', 'pharmacy', 'dentist', 'bank', 'atm', 'supermarket', 'square'])
+      .nearby(center, 1000, ['hospital', 'clinic', 'pharmacy', 'dentist', 'bank', 'atm', 'supermarket', 'square', 'school'])
       .then((result) => {
         if (!cancelled) setItems(result);
       })

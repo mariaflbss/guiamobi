@@ -15,13 +15,15 @@ export interface MapFavorite {
   id: string;
   nickname: string;
   address: string;
+  kind?: string;
+  category?: string;
   latitude: number;
   longitude: number;
 }
 
 export interface MapPoi {
   id: string;
-  category: 'hospital' | 'clinic' | 'pharmacy' | 'dentist' | 'bank' | 'atm' | 'supermarket' | 'square';
+  category: 'hospital' | 'clinic' | 'pharmacy' | 'dentist' | 'bank' | 'atm' | 'supermarket' | 'square' | 'school';
   name: string | null;
   latitude: number;
   longitude: number;
@@ -79,6 +81,7 @@ export interface MapDataInput {
     mapUnavailable: string;
     unnamedPoi: string;
     favorite: string;
+    favoriteCategories: Record<string, string>;
     poi: Record<MapPoi['category'], string>;
   };
 }
@@ -113,6 +116,7 @@ export function buildMapData(input: MapDataInput) {
       lon: favorite.longitude,
       nickname: favorite.nickname,
       address: favorite.address,
+      category: favorite.category ?? favorite.kind ?? '',
     })),
     vehicles: (input.vehicles ?? []).map((v) => [v.latitude, v.longitude]),
     colors: input.colors,

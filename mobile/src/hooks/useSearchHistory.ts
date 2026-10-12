@@ -45,11 +45,18 @@ export function useSearchHistory() {
     onSuccess: invalidate,
   });
 
+  const clearMutation = useMutation({
+    mutationFn: () => historyRepository.clear(),
+    onSuccess: invalidate,
+  });
+
   return {
     history: historyQuery.data ?? [],
     isLoading: historyQuery.isLoading,
     lastRoute: lastRouteQuery.data ?? null,
     addSearch: addMutation.mutateAsync,
     setChosenLine: chosenLineMutation.mutateAsync,
+    clearHistory: clearMutation.mutateAsync,
+    isClearingHistory: clearMutation.isPending,
   };
 }

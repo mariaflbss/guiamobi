@@ -61,14 +61,21 @@ export function AddFavoriteScreen({ navigation }: Props) {
     if (nickname.trim().length === 0) return fail(t('auth.errors.shortName'));
     if (!place) return fail(t('favorites.chooseAddress'));
 
-    await createFavorite({
-      nickname: nickname.trim(),
-      address: place.secondaryLabel ?? place.label,
-      coordinates: place.coordinates,
-      kind,
-    });
-    announce(t('favorites.saved'), { haptic: 'success' });
-    navigation.goBack();
+    try {
+      await createFavorite({
+        nickname: nickname.trim(),
+        address: place.secondaryLabel ?? place.label,
+        coordinates: place.coordinates,
+        kind,
+      });
+      announce(t('favorites.saved'), { haptic: 'success' });
+      navigation.goBack();
+    } catch (error) {
+      if (error instanceof Error && error.message === 'FAVORITE_DUPLICATE') {
+        return fail(t('favorites.duplicateFavorite'));
+      }
+      fail(t('favorites.saveError'));
+    }
   }
 
   const searchError =
