@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { useIsFocused } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,14 +45,35 @@ export function TrackingScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
   const { theme, announce, settings, language } = useAccessibility();
   const p = route.params;
-  const { line, isLoading, errorMessage } = useLineDetail(p.lineId);
+  // A tela anterior já possui o trecho e o traçado calculados. Reutilizamos
+  // esses dados para a navegação, evitando uma segunda chamada à API ao tocar
+  // em "Iniciar viagem". O fallback continua sendo o carregamento normal
+  // quando a tela for aberta sem dados pré-carregados.
+  const prefetchedLine = useMemo(() => p.stops?.length ? {
+    id: p.lineId,
+    code: p.lineCode,
+    name: p.lineName,
+    stops: p.stops,
+    shape: p.shape,
+    status: 'OPERATIONAL' as const,
+    delayMinutes: null,
+    hasRouteData: true,
+    officialSourceUrl: null,
+  } : null, [p.lineId, p.lineCode, p.lineName, p.stops, p.shape]);
+  const { line, isLoading, errorMessage } = useLineDetail(p.lineId, prefetchedLine);
   const { vehicles } = useVehiclePositions(p.lineId);
   const { favorites } = useFavorites();
   const insets = useSafeAreaInsets();
   useStatusBarStyle('light');
   const c = theme.colors;
+  const isFocused = useIsFocused();
 
   const [user, setUser] = useState<Coordinates | null>(null);
+  const [simulationActive, setSimulationActive] = useState(p.simulation === true);
+  const simulationElapsedRef = useRef(0);
+  const [simulationProgress, setSimulationProgress] = useState(0);
+  const [traveledPath, setTraveledPath] = useState<Coordinates[]>([]);
+  const lastTraveledPointRef = useRef<Coordinates | null>(null);
   // Favoritos são pessoais e devem permanecer destacados no mapa independentemente
   // da distância atual do usuário. O raio de 1 km vale apenas para os POIs de orientação.
   const nearbyFavorites = favorites;
@@ -67,11 +89,102 @@ export function TrackingScreen({ route, navigation }: Props) {
   const destinationIndex = stops.findIndex((s) => s.stop.id === p.alightingStopId);
   const ready = stops.length > 0 && boardingIndex >= 0 && destinationIndex > boardingIndex;
 
-  // Acompanha a posição do aparelho enquanto a tela está aberta
+  const rawRouteShape = useMemo(() => {
+    const shape = (line?.shape?.length ?? 0) > 1 ? line!.shape! : (p.shape && p.shape.length > 1 ? p.shape : []);
+    return shape.filter((point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude));
+  }, [line?.shape, p.shape]);
+
+  const nearestShapeIndex = useMemo(() => (point: Coordinates, shape: Coordinates[]) => {
+    let best = 0;
+    let bestDistance = Infinity;
+    shape.forEach((candidate, index) => {
+      const d = distanceMeters(point, candidate);
+      if (d < bestDistance) { bestDistance = d; best = index; }
+    });
+    return best;
+  }, []);
+
+  // Recorta o traçado real entre embarque e destino. Assim a simulação não
+  // percorre um trecho anterior/posterior da linha e nunca precisa ligar
+  // paradas com uma reta artificial.
+  const simulationPath = useMemo(() => {
+    if (!ready) return [];
+    const boarding = stops[boardingIndex].stop;
+    const destination = stops[destinationIndex].stop;
+    if (rawRouteShape.length > 1) {
+      let a = nearestShapeIndex(boarding, rawRouteShape);
+      let b = nearestShapeIndex(destination, rawRouteShape);
+      if (a > b) [a, b] = [b, a];
+      const sliced = rawRouteShape.slice(a, b + 1);
+      if (sliced.length > 1) return sliced;
+    }
+    return [boarding, destination];
+  }, [ready, stops, boardingIndex, destinationIndex, rawRouteShape, nearestShapeIndex]);
+
+  // Modo demonstração: aproximadamente 10 segundos entre cada parada.
+  // O tempo é distribuído pelo traçado real entre as paradas, mantendo o
+  // marcador sobre a geometria da rua em vez de fazê-lo saltar em linha reta.
+  const stopCountForSimulation = Math.max(1, destinationIndex - boardingIndex);
+  const totalDurationMs = stopCountForSimulation * 10_000;
+
+  const simulationStopProgress = useMemo(() => {
+    if (!simulationActive || !ready || simulationPath.length < 2) return null;
+    const values: number[] = [];
+    for (let i = boardingIndex; i <= destinationIndex; i += 1) {
+      let best = Infinity;
+      let bestIndex = 0;
+      for (let j = 0; j < simulationPath.length; j += 1) {
+        const d = distanceMeters(stops[i].stop, simulationPath[j]);
+        if (d < best) { best = d; bestIndex = j; }
+      }
+      values.push(bestIndex / Math.max(1, simulationPath.length - 1));
+    }
+    return values;
+  }, [simulationActive, ready, simulationPath, boardingIndex, destinationIndex, stops]);
+
   useEffect(() => {
+    if (!simulationActive || !isFocused || simulationPath.length < 2 || !ready) return;
+    if (simulationElapsedRef.current === 0) setUser(simulationPath[0]);
+    const intervalMs = 100;
+    const interval = setInterval(() => {
+      simulationElapsedRef.current += intervalMs;
+      const elapsed = Math.min(simulationElapsedRef.current, totalDurationMs);
+      const globalProgress = Math.min(1, elapsed / totalDurationMs);
+      setSimulationProgress(globalProgress);
+
+      const scaledPosition = globalProgress * (simulationPath.length - 1);
+      const segment = Math.min(Math.floor(scaledPosition), simulationPath.length - 2);
+      const fraction = Math.min(1, scaledPosition - segment);
+      const from = simulationPath[segment];
+      const to = simulationPath[segment + 1];
+      setUser({
+        latitude: from.latitude + (to.latitude - from.latitude) * fraction,
+        longitude: from.longitude + (to.longitude - from.longitude) * fraction,
+      });
+      if (elapsed >= totalDurationMs) clearInterval(interval);
+    }, intervalMs);
+    return () => clearInterval(interval);
+  }, [simulationActive, isFocused, simulationPath, ready, totalDurationMs]);
+
+  // Mantém o histórico do trecho já percorrido para desenhar uma linha
+  // acompanhando o usuário no mapa. Amostramos a cada ~15 m para não enviar
+  // centenas de pontos idênticos ao WebView.
+  useEffect(() => {
+    if (!user) return;
+    const last = lastTraveledPointRef.current;
+    if (last && distanceMeters(last, user) < 15) return;
+    lastTraveledPointRef.current = user;
+    setTraveledPath((current) => {
+      if (current.length === 0) return [user];
+      return [...current, user];
+    });
+  }, [user]);
+
+  // GPS real: mantém o comportamento de produção quando não estamos simulando.
+  useEffect(() => {
+    if (simulationActive) return;
     let stop: (() => void) | null = null;
     let cancelled = false;
-
     (async () => {
       let status = await locationService.getPermissionStatus();
       if (status !== 'granted') status = await locationService.requestPermission();
@@ -79,35 +192,34 @@ export function TrackingScreen({ route, navigation }: Props) {
         if (!cancelled) setPermissionDenied(true);
         return;
       }
-      // Obtém uma posição imediatamente para o mapa não precisar esperar o primeiro callback do watcher.
       try {
         const coordinates = await locationService.getCurrentPosition();
         if (!cancelled) setUser(coordinates);
-      } catch {
-        // O watcher abaixo ainda pode conseguir uma posição posteriormente.
-      }
-
+      } catch {}
       if (cancelled) return;
-
       const unsubscribe = await locationService.watchPosition((coordinates) => setUser(coordinates));
       if (cancelled) unsubscribe();
       else stop = unsubscribe;
     })();
+    return () => { cancelled = true; stop?.(); };
+  }, [simulationActive]);
 
-    return () => {
-      cancelled = true;
-      stop?.();
-    };
-  }, []);
-
-  // Progresso ao longo da linha (nunca volta para trás) e próxima parada
+  // Progresso ao longo da linha (nunca volta para trás) e próxima parada.
   const progress = useMemo(() => {
     if (!ready) return null;
     const dest = stops[destinationIndex].stop;
     const destination = { latitude: dest.latitude, longitude: dest.longitude };
 
     let passed = Math.max(passedIndexRef.current, boardingIndex - 1);
-    if (user) {
+    if (simulationActive && simulationStopProgress) {
+      for (let local = 0; local < simulationStopProgress.length - 1; local += 1) {
+        if (simulationStopProgress[local] <= simulationProgress + 0.000001) {
+          passed = Math.max(passed, boardingIndex + local);
+        }
+      }
+      passed = Math.min(passed, destinationIndex - 1);
+      passedIndexRef.current = passed;
+    } else if (user) {
       for (let i = boardingIndex; i <= destinationIndex; i += 1) {
         const stop = stops[i].stop;
         if (distanceMeters(user, stop) <= PASSED_DISTANCE_METERS && i > passed) passed = Math.min(i, destinationIndex - 1);
@@ -125,15 +237,20 @@ export function TrackingScreen({ route, navigation }: Props) {
       nextName: nextStop.name,
       toNext,
       toDestination,
-      remaining: Math.max(destinationIndex - passed, 1),
+      remaining: Math.max(destinationIndex - passed, 0),
     };
-  }, [ready, stops, boardingIndex, destinationIndex, user]);
+  }, [ready, stops, boardingIndex, destinationIndex, user, simulationActive, simulationProgress, simulationStopProgress]);
 
   // Dados reais para o mapa (US09): POIs do OpenStreetMap ao redor do usuário e
   // endereço real (rua/número, quando o OSM tem) da próxima parada.
   const nearbyPois = useNearbyPois(user);
   const nextStopForReference = progress ? stops[progress.nextIndex]?.stop : null;
   const nextStopPois = useNearbyPois(nextStopForReference);
+  const routePois = useMemo(() => {
+    const merged = new Map<string, typeof nearbyPois[number]>();
+    [...nearbyPois, ...nextStopPois].forEach((poi) => merged.set(poi.id, poi));
+    return Array.from(merged.values());
+  }, [nearbyPois, nextStopPois]);
   const nearbyLines = useNearbyLines(user);
   const atStopLines = nearbyLines.filter((item) => item.stop.distanceMeters <= 40);
   const nextStopAddress = useStopAddress(progress ? stops[progress.nextIndex]?.stop : null);
@@ -144,21 +261,44 @@ export function TrackingScreen({ route, navigation }: Props) {
     return t('tracking.distanceKm', { value: (meters / 1000).toFixed(1).replace('.', language === 'en' ? '.' : ',') });
   }
 
-  // Anuncia a próxima parada quando ela muda
+  // Anuncia a próxima parada quando ela muda e também mantém uma orientação
+  // periódica durante viagens longas (a cada 3 minutos).
+  const lastPeriodicAnnouncementRef = useRef(0);
   useEffect(() => {
     if (!progress || progress.toNext === null) return;
-    if (lastSpokenStopRef.current === progress.nextName) return;
-    lastSpokenStopRef.current = progress.nextName;
-    announce(t('tracking.spokenNext', { name: progress.nextName, distance: formatDistance(progress.toNext) }), { haptic: 'light' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [progress?.nextName, progress?.toNext === null]);
+    if (lastSpokenStopRef.current !== progress.nextName) {
+      lastSpokenStopRef.current = progress.nextName;
+      announce(t('tracking.spokenNext', { name: progress.nextName, distance: formatDistance(progress.toNext) }), { haptic: 'light' });
+    }
+  }, [progress?.nextName, progress?.toNext, announce, t]);
+
+  useEffect(() => {
+    if (!simulationActive || !progress) return;
+    const elapsed = simulationElapsedRef.current;
+    const interval = Math.floor(elapsed / 180000);
+    if (interval > 0 && interval > lastPeriodicAnnouncementRef.current) {
+      lastPeriodicAnnouncementRef.current = interval;
+      announce(t('tracking.spokenProgress', {
+        name: progress.nextName,
+        remaining: progress.remaining,
+      }), { haptic: 'light' });
+    }
+  }, [simulationActive, simulationProgress, progress?.nextName, progress?.remaining, announce, t]);
 
   // Alerta a ~200 m e chegada a ~40 m do destino
   useEffect(() => {
     if (!progress || progress.toDestination === null || !line) return;
     const destName = stops[destinationIndex].stop.name;
 
-    if (progress.toDestination <= ARRIVAL_DISTANCE_METERS && !arrivedRef.current) {
+    // O aviso precisa acontecer antes da chegada. Se uma atualização do GPS
+    // atravessar os dois limiares, o Prepare-se continua tendo prioridade.
+    if (progress.toDestination <= ALERT_DISTANCE_METERS && !alertedRef.current) {
+      alertedRef.current = true;
+      navigation.navigate('StopAlert', { stopName: destName });
+      return;
+    }
+
+    if (progress.toDestination <= ARRIVAL_DISTANCE_METERS && alertedRef.current && !arrivedRef.current) {
       arrivedRef.current = true;
       navigation.replace('Arrival', {
         placeName: p.destinationLabel ?? destName,
@@ -166,17 +306,12 @@ export function TrackingScreen({ route, navigation }: Props) {
           lineCode: p.lineCode,
           lineName: p.lineName,
           destinationLabel: destName,
-          durationMinutes: p.durationMinutes ?? null,
-          stopsCount: p.stopsCount ?? null,
+          durationMinutes: Math.max(1, Math.round(simulationElapsedRef.current / 60000)),
+          stopsCount: Math.max(destinationIndex - boardingIndex, 0),
           startedAt,
         },
       });
       return;
-    }
-
-    if (progress.toDestination <= ALERT_DISTANCE_METERS && !alertedRef.current) {
-      alertedRef.current = true;
-      navigation.navigate('StopAlert', { stopName: destName });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress?.toDestination]);
@@ -216,18 +351,19 @@ export function TrackingScreen({ route, navigation }: Props) {
           <View style={styles.mapArea}>
             <RouteMap
               stops={stops.map((s) => s.stop)}
-              shape={line?.shape}
+              shape={simulationActive ? simulationPath : (line?.shape ?? p.shape)}
+              traveledShape={traveledPath}
               vehicles={vehicles.map((v) => ({ id: v.gtfsVehicleId, latitude: v.latitude, longitude: v.longitude }))}
               lineCode={p.lineCode}
               boardingIndex={boardingIndex}
               destinationIndex={destinationIndex}
               currentStopIndex={progress?.nextIndex}
               currentStopAddress={nextStopAddress}
-              pois={nearbyPois}
+              pois={routePois}
               favorites={nearbyFavorites}
               user={user}
               height={undefined}
-              badge={t('tracking.gps')}
+              badge={simulationActive ? 'SIMULAÇÃO' : t('tracking.gps')}
               accessibilityLabel={t('tracking.mapLabel', { code: p.lineCode })}
             />
           </View>

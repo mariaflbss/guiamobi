@@ -28,8 +28,11 @@ export function StopAlertScreen({ route, navigation }: Props) {
   const c = theme.colors;
 
   useEffect(() => {
-    announce(t('stopAlert.spoken', { name: stopName }), { haptic: 'warning' });
-    // dispara uma única vez ao abrir
+    const timer = setTimeout(() => {
+      announce(t('stopAlert.spoken', { name: stopName }), { haptic: 'warning' });
+    }, 250);
+    return () => clearTimeout(timer);
+    // dispara uma única vez ao abrir, depois que a tela ganha foco
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

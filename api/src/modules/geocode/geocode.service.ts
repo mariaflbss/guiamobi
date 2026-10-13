@@ -58,6 +58,8 @@ export interface StopAddress {
 const reverseCache = new Map<string, { expiresAt: number; result: StopAddress | null }>();
 const cache = new Map<string, { expiresAt: number; results: PlaceResult[] }>();
 const userHits = new Map<string, number[]>();
+const searchInFlight = new Map<string, Promise<PlaceResult[]>>();
+const reverseInFlight = new Map<string, Promise<StopAddress | null>>();
 let queue: Promise<unknown> = Promise.resolve();
 let lastRequestAt = 0;
 
@@ -106,54 +108,66 @@ function toPlace(item: NominatimItem): PlaceResult {
 export const geocodeService = {
   async search(userId: string, query: string): Promise<PlaceResult[]> {
     const key = normalize(query);
+    if (!key) return [];
+
     const cached = cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.results;
 
-    checkUserLimit(userId);
+    const inFlight = searchInFlight.get(key);
+    if (inFlight) return inFlight;
 
-    const params = new URLSearchParams({
-      q: query,
-      format: 'jsonv2',
-      addressdetails: '1',
-      limit: '5',
-      countrycodes: 'br',
-      'accept-language': 'pt-BR',
-      viewbox: SJC_VIEWBOX,
-      // bounded=1: restringe de verdade a São José dos Campos (não é só
-      // preferência) - o GuiaMobi cobre o transporte municipal desta cidade.
-      bounded: '1',
-    });
+    const request = (async () => {
+      checkUserLimit(userId);
 
-    const contact = env.GEOCODING_CONTACT || 'contato-nao-configurado';
-    const userAgent = `GuiaMobiAcessivel/1.0 (${contact})`;
+      const params = new URLSearchParams({
+        q: query.trim(),
+        format: 'jsonv2',
+        addressdetails: '1',
+        limit: '5',
+        countrycodes: 'br',
+        'accept-language': 'pt-BR',
+        viewbox: SJC_VIEWBOX,
+        bounded: '1',
+      });
 
-    const items = await enqueue(async () => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      try {
-        const response = await fetch(`${env.GEOCODING_BASE_URL}/search?${params.toString()}`, {
-          headers: { 'User-Agent': userAgent, Accept: 'application/json' },
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`geocoding status ${response.status}`);
-        return (await response.json()) as NominatimItem[];
-      } finally {
-        clearTimeout(timer);
+      const contact = env.GEOCODING_CONTACT || 'contato-nao-configurado';
+      const userAgent = `GuiaMobiAcessivel/1.0 (${contact})`;
+      const startedAt = Date.now();
+
+      const items = await enqueue(async () => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          const response = await fetch(`${env.GEOCODING_BASE_URL}/search?${params.toString()}`, {
+            headers: { 'User-Agent': userAgent, Accept: 'application/json' },
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`geocoding status ${response.status}`);
+          return (await response.json()) as NominatimItem[];
+        } finally {
+          clearTimeout(timer);
+        }
+      }).catch((error) => {
+        console.error('Falha na busca de endereços:', error);
+        throw new AppError('O serviço de busca de endereços está indisponível agora. Tente novamente em instantes.', 502);
+      });
+
+      const results = items.map(toPlace);
+      if (cache.size >= CACHE_MAX_ENTRIES) {
+        const oldest = cache.keys().next().value;
+        if (oldest !== undefined) cache.delete(oldest);
       }
-    }).catch((error) => {
-      console.error('Falha na busca de endereços:', error);
-      throw new AppError('O serviço de busca de endereços está indisponível agora. Tente novamente em instantes.', 502);
-    });
+      cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, results });
+      console.info(`[Geocode] busca '${key}' concluída em ${Date.now() - startedAt}ms (${results.length} resultado(s)).`);
+      return results;
+    })();
 
-    const results = items.map(toPlace);
-
-    if (cache.size >= CACHE_MAX_ENTRIES) {
-      const oldest = cache.keys().next().value;
-      if (oldest !== undefined) cache.delete(oldest);
+    searchInFlight.set(key, request);
+    try {
+      return await request;
+    } finally {
+      searchInFlight.delete(key);
     }
-    cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, results });
-
-    return results;
   },
 
   /**
@@ -167,7 +181,11 @@ export const geocodeService = {
     const cached = reverseCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.result;
 
-    checkUserLimit(userId);
+    const inFlight = reverseInFlight.get(key);
+    if (inFlight) return inFlight;
+
+    const request = (async () => {
+      checkUserLimit(userId);
 
     const params = new URLSearchParams({
       lat: String(latitude),
@@ -219,5 +237,13 @@ export const geocodeService = {
     reverseCache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, result });
 
     return result;
+    })();
+
+    reverseInFlight.set(key, request);
+    try {
+      return await request;
+    } finally {
+      reverseInFlight.delete(key);
+    }
   },
 };

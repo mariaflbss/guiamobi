@@ -63,6 +63,7 @@ export interface MapColors {
 export interface MapDataInput {
   stops: MapStop[];
   shape?: Coordinates[];
+  traveledShape?: Coordinates[];
   pois?: MapPoi[];
   favorites?: MapFavorite[];
   vehicles?: MapVehicle[];
@@ -91,6 +92,9 @@ export function buildMapData(input: MapDataInput) {
   const { stops, boardingIndex, destinationIndex, currentStopIndex } = input;
   // Único ponto por onde um traçado chega ao mapa: só passa geometria real.
   const shape = evaluateShape(input.shape, stops);
+  const traveledShape = (input.traveledShape ?? []).filter(
+    (p) => p && Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
+  );
   return {
     shapeStatus: shape.status,
     stops: stops.map((stop, index) => ({
@@ -104,6 +108,7 @@ export function buildMapData(input: MapDataInput) {
       address: index === currentStopIndex ? input.currentStopAddress ?? '' : '',
     })),
     shape: shape.points.map((p) => [p.latitude, p.longitude]),
+    traveledShape: traveledShape.map((p) => [p.latitude, p.longitude]),
     pois: (input.pois ?? []).map((poi) => ({
       lat: poi.latitude,
       lon: poi.longitude,

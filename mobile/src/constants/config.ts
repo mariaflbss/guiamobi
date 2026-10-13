@@ -18,6 +18,7 @@ export const MAX_HISTORY_ITEMS = 10;
 // Chaves usadas no SecureStore (US01 - armazenamento seguro da sessão)
 export const SECURE_STORE_KEYS = {
   ACCESS_TOKEN: 'guiamobi.accessToken',
+  REFRESH_TOKEN: 'guiamobi.refreshToken',
   USER: 'guiamobi.user',
 } as const;
 

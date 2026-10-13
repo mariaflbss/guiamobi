@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { AccessibleText } from './AccessibleText';
 import { MAP_REFERER_URL } from '../constants/config';
+import { speechService } from '../services/speech/speechService';
 import { MAP_HTML } from './map/mapHtml';
 import {
   buildMapData,
@@ -26,6 +27,7 @@ interface RouteMapProps {
   currentStopIndex?: number;
   user?: Coordinates | null;
   shape?: Coordinates[];
+  traveledShape?: Coordinates[];
   pois?: MapPoi[];
   favorites?: MapFavorite[];
   currentStopAddress?: string;
@@ -65,6 +67,7 @@ export function RouteMap({
   currentStopIndex,
   user,
   shape,
+  traveledShape,
   vehicles,
   pois,
   favorites,
@@ -74,7 +77,7 @@ export function RouteMap({
   badge,
 }: RouteMapProps) {
   const { t } = useTranslation();
-  const { theme, speak, stopSpeech } = useAccessibility();
+  const { theme, speak, stopSpeech, language } = useAccessibility();
   const c = theme.colors;
   const [mapType, setMapType] = useState<MapTypeKey>('standard');
   const [readyCount, setReadyCount] = useState(0);
@@ -89,6 +92,7 @@ export function RouteMap({
     ? buildMapData({
         stops,
         shape,
+        traveledShape,
         pois,
         favorites,
         vehicles,
@@ -123,6 +127,36 @@ export function RouteMap({
       })
     : null;
   const dataScript = mapData ? buildPageCall('setData', mapData) : '';
+  // Pré-carrega descrições curtas do mapa enquanto a pessoa explora a tela.
+  // Prioriza POIs (até 16), favoritos (até 4) e pontos-chave da rota; assim,
+  // o primeiro toque tende a reproduzir áudio neural já baixado, sem esperar a API.
+  const speechPrefetchSignature = mapData ? JSON.stringify({
+    pois: mapData.pois,
+    favorites: mapData.favorites,
+    stops: mapData.stops.filter((stop) => stop.boarding || stop.destination || stop.current),
+    labels: mapData.labels,
+  }) : '';
+  useEffect(() => {
+    if (!mapData || !speechPrefetchSignature) return;
+    const data = mapData;
+    const texts: string[] = [];
+    for (const poi of data.pois.slice(0, 16)) {
+      const category = data.labels.poi[poi.category];
+      texts.push(`${poi.name || data.labels.unnamedPoi}. ${category || data.labels.unnamedPoi}`);
+    }
+    for (const favorite of (data.favorites ?? []).slice(0, 4)) {
+      const category = favorite.category ? data.labels.favoriteCategories[favorite.category] : '';
+      texts.push([favorite.nickname || data.labels.favorite, category, favorite.address].filter(Boolean).join('. '));
+    }
+    for (const stop of data.stops.filter((item) => item.boarding || item.destination || item.current).slice(0, 4)) {
+      const role = stop.destination ? data.labels.destination : stop.boarding ? data.labels.origin : data.labels.stop;
+      const title = (stop.destination || stop.boarding) ? (stop.name ? `${role}: ${stop.name}` : role) : (stop.name || role);
+      texts.push([title, stop.current && stop.address ? stop.address : ''].filter(Boolean).join('. '));
+    }
+    speechService.prefetchMany(texts, language);
+    // A assinatura só muda quando os dados falados do mapa mudam.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speechPrefetchSignature, language]);
   // Traçado real só existe se passou na validação; senão a linha fica ausente e avisamos.
   const hasRealShape = mapData?.shapeStatus === 'ok';
 

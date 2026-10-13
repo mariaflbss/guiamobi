@@ -312,7 +312,9 @@
     "alternativesTitle": "Alternativas disponibles",
     "noAlternatives": "No hay otra alternativa disponible para este trayecto en este momento.",
     "viewAlternative": "Ver alternativa",
-    "distanceMetersValue": "{{count}} m"
+    "distanceMetersValue": "{{count}} m",
+    "foundCountLabel": "Rutas encontradas: {{count}}",
+    "foundCountSpoken": "Se encontraron {{count}} rutas."
   },
   "routeDetail": {
     "summary": "{{stops}} paradas · {{minutes}} min",
@@ -379,6 +381,7 @@
     "permissionNeeded": "Para seguir el viaje es necesario permitir el acceso a la ubicación del dispositivo.",
     "locating": "Obteniendo tu posición...",
     "spokenNext": "Próxima parada: {{name}}, a {{distance}}.",
+    "spokenProgress": "Durante el viaje: próxima parada {{name}}. Quedan {{remaining}} paradas.",
     "distanceMeters": "{{count}} m",
     "distanceKm": "{{value}} km",
     "approaching": "Estás llegando a tu destino: {{name}}.",

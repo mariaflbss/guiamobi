@@ -19,14 +19,19 @@ import {
 const GOOGLE_ROUTES_URL =
   'https://routes.googleapis.com/directions/v2:computeRoutes';
 
-const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 8000;
+const SEARCH_CACHE_TTL_MS = 20_000;
+const LINE_SEARCH_CACHE_TTL_MS = 30_000;
+const LINE_DETAIL_CACHE_TTL_MS = 5 * 60_000;
+const OFFICIAL_LINE_COUNT_CACHE_TTL_MS = 60_000;
 
 const GOOGLE_FIELD_MASK = [
   'routes.duration',
   'routes.legs.steps.travelMode',
-  'routes.legs.steps.transitDetails',
-  'routes.legs.steps.startLocation',
-  'routes.legs.steps.endLocation',
+  'routes.legs.steps.transitDetails.stopDetails',
+  'routes.legs.steps.transitDetails.transitLine',
+  'routes.legs.steps.transitDetails.stopCount',
+  'routes.polyline.encodedPolyline',
 ].join(',');
 
 interface GoogleLocation {
@@ -82,6 +87,34 @@ interface GoogleRoute {
 
 interface GoogleResponse {
   routes?: GoogleRoute[];
+}
+
+function decodeGooglePolyline(encoded: string): { latitude: number; longitude: number }[] {
+  const points: { latitude: number; longitude: number }[] = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < encoded.length) {
+    let result = 0;
+    let shift = 0;
+    let byte = 0;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : result >> 1;
+    result = 0;
+    shift = 0;
+    do {
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : result >> 1;
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return points;
 }
 
 function validCoordinate(value: unknown): value is number {
@@ -222,6 +255,9 @@ export class GoogleRoutesProvider
   private readonly gtfsProvider =
     new GtfsDatabaseProvider();
 
+  private officialLineCountCache: { expiresAt: number; count: number } | null = null;
+  private routeSearchInFlight = new Map<string, Promise<RouteOption[]>>();
+
   /**
    * Cache de detalhes das opções retornadas pela Google
    * durante a sessão do backend.
@@ -235,13 +271,24 @@ export class GoogleRoutesProvider
   private readonly googleLineDetails =
     new Map<string, LineDetail>();
 
+  private readonly routeSearchCache =
+    new Map<string, { expiresAt: number; options: RouteOption[] }>();
+
+  private readonly lineSearchCache =
+    new Map<string, { expiresAt: number; lines: LineSearchResult[] }>();
+
+  private officialCatalogCache: { expiresAt: number; lines: LineSearchResult[] } | null = null;
+
+  private readonly lineDetailCache =
+    new Map<string, { expiresAt: number; line: LineDetail | null }>();
+
   private async catalogProvider(): Promise<TransitProvider> {
-    const officialLines =
-      await prisma.transitLine.count({
-        where: {
-          dataSource: 'OFFICIAL_GTFS',
-        },
-      });
+    const now = Date.now();
+    let officialLines = this.officialLineCountCache?.count ?? 0;
+    if (!this.officialLineCountCache || this.officialLineCountCache.expiresAt <= now) {
+      officialLines = await prisma.transitLine.count({ where: { dataSource: 'OFFICIAL_GTFS' } });
+      this.officialLineCountCache = { count: officialLines, expiresAt: now + OFFICIAL_LINE_COUNT_CACHE_TTL_MS };
+    }
 
     return officialLines > 0
       ? this.gtfsProvider
@@ -271,6 +318,34 @@ export class GoogleRoutesProvider
       return [];
     }
 
+    const cacheKey = [
+      query.originLat.toFixed(5),
+      query.originLng.toFixed(5),
+      query.destinationLat.toFixed(5),
+      query.destinationLng.toFixed(5),
+    ].join(':');
+    const cached = this.routeSearchCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.options;
+    }
+
+    const inFlight = this.routeSearchInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const requestPromise = this.computeRoutes(query, cacheKey);
+    this.routeSearchInFlight.set(cacheKey, requestPromise);
+    try {
+      return await requestPromise;
+    } finally {
+      this.routeSearchInFlight.delete(cacheKey);
+    }
+  }
+
+  private async computeRoutes(
+    query: SearchRoutesQueryInput,
+    cacheKey: string,
+  ): Promise<RouteOption[]> {
+    const startedAt = Date.now();
     const controller = new AbortController();
 
     const timeout = setTimeout(
@@ -351,6 +426,8 @@ export class GoogleRoutesProvider
 
       const body =
         (await response.json()) as GoogleResponse;
+
+      console.info(`[GoogleRoutes] resposta recebida em ${Date.now() - startedAt}ms.`);
 
       const routes = Array.isArray(body.routes)
         ? body.routes
@@ -531,78 +608,87 @@ export class GoogleRoutesProvider
             0,
           );
 
-        this.googleLineDetails.set(
+        const detailedStops = transitSteps
+          .flatMap((step) => {
+            const details = step.transitDetails;
+            const departureStop = stopFromGoogle(details?.stopDetails?.departureStop, 'Parada de embarque');
+            const arrivalStop = stopFromGoogle(details?.stopDetails?.arrivalStop, 'Parada de desembarque');
+            return [departureStop, arrivalStop];
+          })
+          .filter((stop): stop is NonNullable<typeof stop> => Boolean(stop))
+          .filter((stop, index, all) => index === 0 || stop.id !== all[index - 1].id);
+
+        const firstDepartureMs = departure ? new Date(departure).getTime() : NaN;
+        let stops = detailedStops.map((stop, index) => {
+          const step = transitSteps[Math.min(index, transitSteps.length - 1)];
+          const timestamp = index === 0
+            ? departure
+            : step.transitDetails?.stopDetails?.arrivalTime || step.transitDetails?.stopDetails?.departureTime;
+          const timestampMs = timestamp ? new Date(timestamp).getTime() : NaN;
+          const minutesFromStart = Number.isFinite(firstDepartureMs) && Number.isFinite(timestampMs)
+            ? Math.max(0, Math.round((timestampMs - firstDepartureMs) / 60000))
+            : Math.round((seconds / 60) * (index / Math.max(1, detailedStops.length - 1)));
+          return {
+            sequence: index + 1,
+            minutesFromStart,
+            stop: {
+              id: stop.id,
+              name: stop.name,
+              latitude: stop.latitude,
+              longitude: stop.longitude,
+            },
+          };
+        });
+
+        let shape = route.polyline?.encodedPolyline
+          ? decodeGooglePolyline(route.polyline.encodedPolyline)
+          : transitSteps
+              .flatMap((step) => [
+                step.startLocation?.latLng && validCoordinate(step.startLocation.latLng.latitude) && validCoordinate(step.startLocation.latLng.longitude)
+                  ? { latitude: step.startLocation.latLng.latitude!, longitude: step.startLocation.latLng.longitude! }
+                  : null,
+                step.endLocation?.latLng && validCoordinate(step.endLocation.latLng.latitude) && validCoordinate(step.endLocation.latLng.longitude)
+                  ? { latitude: step.endLocation.latLng.latitude!, longitude: step.endLocation.latLng.longitude! }
+                  : null,
+              ])
+              .filter((point): point is { latitude: number; longitude: number } => Boolean(point));
+
+        // A resposta da Google já contém o necessário para abrir a rota.
+        // O enriquecimento com stop_times/shape do GTFS é pesado para a busca
+        // e não deve bloquear a primeira pintura da tela. Guardamos primeiro
+        // o detalhe rápido e enriquecemos em background; se o usuário tocar
+        // imediatamente, a tela abre com os dados da Google.
+        const fastDetail: LineDetail = {
           id,
-          {
-            id,
-            code,
-            name,
+          code,
+          name,
+          stops: stops.length >= 2 ? stops : [
+            { sequence: 1, minutesFromStart: 0, stop: boarding },
+            { sequence: 2, minutesFromStart: Math.max(1, Math.round(seconds / 60)), stop: alighting },
+          ],
+          shape: shape.length >= 2 ? shape : [boarding, alighting],
+          status: 'OPERATIONAL',
+          delayMinutes: null,
+          statusReason: 'Dados de rota calculados pela Google Routes API.',
+          hasRouteData: true,
+          officialSourceUrl: null,
+        };
+        this.googleLineDetails.set(id, fastDetail);
 
-            stops: [
-              {
-                sequence: 1,
-                minutesFromStart: 0,
+        void this.gtfsProvider.getTripSegmentByLineCode(
+          code,
+          { latitude: boarding.latitude, longitude: boarding.longitude },
+          { latitude: alighting.latitude, longitude: alighting.longitude },
+        ).then((gtfsSegment) => {
+          if (!gtfsSegment?.stops?.length || gtfsSegment.stops.length < 2) return;
+          const enriched: LineDetail = {
+            ...fastDetail,
+            stops: gtfsSegment.stops,
+            shape: gtfsSegment.shape && gtfsSegment.shape.length >= 2 ? gtfsSegment.shape : fastDetail.shape,
+          };
+          this.googleLineDetails.set(id, enriched);
+        }).catch(() => undefined);
 
-                stop: {
-                  id: boarding.id,
-                  name: boarding.name,
-                  latitude:
-                    boarding.latitude,
-                  longitude:
-                    boarding.longitude,
-                },
-              },
-
-              {
-                sequence: 2,
-
-                minutesFromStart:
-                  Math.max(
-                    1,
-                    Math.round(
-                      seconds / 60,
-                    ),
-                  ),
-
-                stop: {
-                  id: alighting.id,
-                  name: alighting.name,
-                  latitude:
-                    alighting.latitude,
-                  longitude:
-                    alighting.longitude,
-                },
-              },
-            ],
-
-            shape: [
-              {
-                latitude:
-                  boarding.latitude,
-                longitude:
-                  boarding.longitude,
-              },
-
-              {
-                latitude:
-                  alighting.latitude,
-                longitude:
-                  alighting.longitude,
-              },
-            ],
-
-            status: 'OPERATIONAL',
-
-            delayMinutes: null,
-
-            statusReason:
-              'Dados de rota calculados pela Google Routes API.',
-
-            hasRouteData: true,
-
-            officialSourceUrl: null,
-          },
-        );
 
         options.push({
           lineId: id,
@@ -623,12 +709,19 @@ export class GoogleRoutesProvider
           ),
 
           nextDeparture,
+          shape: shape.length >= 2 ? shape : [boarding, alighting],
+          stops: stops.map((item) => ({
+            sequence: item.sequence,
+            minutesFromStart: item.minutesFromStart,
+            stop: item.stop,
+          })),
         });
       }
 
       console.info(
-        `[GoogleRoutes] ${options.length} opção(ões) diretas de ônibus convertidas para o contrato do GuiaMobi.`,
+        `[GoogleRoutes] ${options.length} opção(ões) diretas de ônibus convertidas para o contrato do GuiaMobi em ${Date.now() - startedAt}ms.`
       );
+      this.routeSearchCache.set(cacheKey, { expiresAt: Date.now() + SEARCH_CACHE_TTL_MS, options });
 
       return options;
     } finally {
@@ -639,6 +732,9 @@ export class GoogleRoutesProvider
   async searchLines(
     term: string,
   ): Promise<LineSearchResult[]> {
+    const normalizedTerm = term.trim().toLowerCase();
+    const cached = this.lineSearchCache.get(normalizedTerm);
+    if (cached && cached.expiresAt > Date.now()) return cached.lines;
     /**
      * Routes API calcula viagens.
      *
@@ -647,21 +743,60 @@ export class GoogleRoutesProvider
      * de linhas já existente para preservar
      * a busca atual.
      */
-    const provider =
-      await this.catalogProvider();
+    const provider = await this.catalogProvider();
 
-    return provider.searchLines(term);
+    // O catálogo de linhas muda raramente. Depois da primeira carga, a busca
+    // por número/nome acontece em memória e não faz uma consulta ILIKE ao
+    // PostgreSQL a cada tecla/abertura da tela.
+    let catalog = this.officialCatalogCache;
+    if (!catalog || catalog.expiresAt <= Date.now()) {
+      if (provider === this.gtfsProvider) {
+        const rows = await prisma.transitLine.findMany({
+          where: { dataSource: 'OFFICIAL_GTFS' },
+          select: { id: true, code: true, name: true, officialSourceUrl: true, status: true, _count: { select: { trips: true } } },
+          orderBy: { code: 'asc' },
+        });
+        catalog = {
+          expiresAt: Date.now() + 10 * 60_000,
+          lines: rows.map((line) => ({
+            lineId: line.id,
+            lineCode: line.code,
+            lineName: line.name,
+            status: (line.status?.status ?? 'OPERATIONAL') as LineSearchResult['status'],
+            delayMinutes: line.status?.status === 'DELAYED' ? line.status.delayMinutes ?? null : null,
+            hasRouteData: line._count.trips > 0,
+            officialSourceUrl: line.officialSourceUrl,
+          })),
+        };
+        this.officialCatalogCache = catalog;
+      } else {
+        const lines = await provider.searchLines(term);
+        this.lineSearchCache.set(normalizedTerm, { expiresAt: Date.now() + LINE_SEARCH_CACHE_TTL_MS, lines });
+        return lines;
+      }
+    }
+
+    const query = normalizedTerm;
+    const lines = catalog.lines.filter((line) =>
+      line.lineCode.toLowerCase().includes(query) || line.lineName.toLowerCase().includes(query),
+    ).slice(0, 50);
+    this.lineSearchCache.set(normalizedTerm, { expiresAt: Date.now() + LINE_SEARCH_CACHE_TTL_MS, lines });
+    return lines;
   }
 
   async getLineDetail(
     lineId: string,
   ): Promise<LineDetail | null> {
+    const cached = this.lineDetailCache.get(lineId);
+    if (cached && cached.expiresAt > Date.now()) return cached.line;
+
     const googleDetail =
       this.googleLineDetails.get(
         lineId,
       );
 
     if (googleDetail) {
+      this.lineDetailCache.set(lineId, { expiresAt: Date.now() + LINE_DETAIL_CACHE_TTL_MS, line: googleDetail });
       return googleDetail;
     }
 
@@ -672,7 +807,9 @@ export class GoogleRoutesProvider
     const provider =
       await this.catalogProvider();
 
-    return provider.getLineDetail(lineId);
+    const line = await provider.getLineDetail(lineId);
+    this.lineDetailCache.set(lineId, { expiresAt: Date.now() + LINE_DETAIL_CACHE_TTL_MS, line });
+    return line;
   }
 
   async linesNearPoint(

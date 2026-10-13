@@ -10,6 +10,7 @@ export interface User {
 export interface AuthSession {
   user: User;
   accessToken: string;
+  refreshToken: string;
 }
 
 export interface RegisterInput {

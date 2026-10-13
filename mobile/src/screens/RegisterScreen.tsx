@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
 import { CircleCheck, Mail, User } from 'lucide-react-native';
@@ -43,7 +43,7 @@ export function RegisterScreen({ navigation }: Props) {
   // sessão, então usamos um diálogo do sistema em vez de navegar para uma
   // tela da área autenticada.
   function openPrivacyPolicy() {
-    Alert.alert(t('help.faq.privacyPolicy.q'), t('help.faq.privacyPolicy.a'));
+    navigation.navigate('PrivacyPolicy');
   }
 
   function validate(): boolean {

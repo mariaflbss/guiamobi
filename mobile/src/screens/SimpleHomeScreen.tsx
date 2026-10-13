@@ -14,6 +14,7 @@ import { InlineMessage } from '../components/InlineMessage';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { toneColors } from '../components/SettingCard';
 import { useAccessibility } from '../contexts/AccessibilityContext';
+import { speechService } from '../services/speech/speechService';
 import { useRouteDraft } from '../contexts/RouteDraftContext';
 import { useFavorites } from '../hooks/useFavorites';
 import { useSearchHistory } from '../hooks/useSearchHistory';
@@ -56,6 +57,7 @@ export function SimpleHomeScreen() {
       announce(t('home.locationDenied'), { haptic: 'warning' });
       return;
     }
+    speechService.stop();
     navigation.navigate('RoutesFound', { origin, destination });
   }
 
@@ -137,8 +139,8 @@ export function SimpleHomeScreen() {
               latitude: lastRoute.destinationLatitude,
               longitude: lastRoute.destinationLongitude,
             };
+            speechService.stop();
             navigation.navigate('RoutesFound', { origin, destination });
-            announce(`${t('home.lastRouteSuggestion')}: ${lastRoute.originLabel} ${t('common.to')} ${lastRoute.destinationLabel}`);
           }}
           accessibilityRole="button"
           accessibilityLabel={`${t('home.lastRouteTitle')}: ${lastRoute.originLabel} ${t('common.to')} ${lastRoute.destinationLabel}`}

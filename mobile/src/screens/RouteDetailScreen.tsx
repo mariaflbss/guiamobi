@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
@@ -27,7 +27,18 @@ export function RouteDetailScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
   const { theme, settings } = useAccessibility();
   const p = route.params;
-  const { line, isLoading, errorMessage } = useLineDetail(p.lineId);
+  const prefetchedLine = useMemo(() => p.stops?.length ? {
+    id: p.lineId,
+    code: p.lineCode,
+    name: p.lineName,
+    stops: p.stops,
+    shape: p.shape,
+    status: 'OPERATIONAL' as const,
+    delayMinutes: null,
+    hasRouteData: true,
+    officialSourceUrl: null,
+  } : null, [p.lineId, p.lineCode, p.lineName, p.stops, p.shape]);
+  const { line, isLoading, errorMessage } = useLineDetail(p.lineId, prefetchedLine);
   const { favoriteLines, addFavoriteLine, removeFavoriteLine } = useFavorites();
   const [serviceAlerts, setServiceAlerts] = useState<ServiceAlertItem[]>([]);
   const [alternatives, setAlternatives] = useState<RouteOption[]>([]);
@@ -36,6 +47,12 @@ export function RouteDetailScreen({ route, navigation }: Props) {
   const c = theme.colors;
 
   useEffect(() => {
+    // Opções calculadas pela Google usam IDs virtuais e não possuem alerta
+    // operacional local. Evita uma requisição que nunca acrescentaria dados.
+    if (p.lineId.startsWith('google:')) {
+      setServiceAlerts([]);
+      return;
+    }
     let cancelled = false;
     routesService.getServiceAlerts(p.lineId).then((result) => {
       if (!cancelled) setServiceAlerts(result.available ? result.alerts : []);
@@ -89,6 +106,8 @@ export function RouteDetailScreen({ route, navigation }: Props) {
       ...p,
       boardingStopId: p.boardingStopId as string,
       alightingStopId: p.alightingStopId as string,
+      shape: p.shape,
+      simulation: true,
     });
   }
 
@@ -165,7 +184,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
           <View style={styles.mapArea}>
             <RouteMap
               stops={hasTrip ? [stops[boardingIndex].stop, stops[destinationIndex].stop] : [stops[0].stop, stops[stops.length - 1].stop]}
-              shape={line?.shape}
+              shape={line?.shape ?? p.shape}
               lineCode={p.lineCode}
               boardingIndex={0}
               destinationIndex={1}

@@ -312,7 +312,9 @@
     "alternativesTitle": "Available alternatives",
     "noAlternatives": "No other alternative is available for this trip right now.",
     "viewAlternative": "View alternative",
-    "distanceMetersValue": "{{count}} m"
+    "distanceMetersValue": "{{count}} m",
+    "foundCountLabel": "Routes found: {{count}}",
+    "foundCountSpoken": "{{count}} routes found."
   },
   "routeDetail": {
     "summary": "{{stops}} stops · {{minutes}} min",
@@ -379,6 +381,7 @@
     "permissionNeeded": "To follow the trip you need to allow access to the device location.",
     "locating": "Getting your position...",
     "spokenNext": "Next stop: {{name}}, {{distance}} away.",
+    "spokenProgress": "During the trip: next stop {{name}}. {{remaining}} stops remaining.",
     "distanceMeters": "{{count}} m",
     "distanceKm": "{{value}} km",
     "approaching": "You are getting close to your destination: {{name}}.",

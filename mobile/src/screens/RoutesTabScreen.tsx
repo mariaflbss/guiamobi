@@ -69,6 +69,8 @@ export function RoutesTabScreen() {
       originLongitude: lastRoute?.originLongitude,
       destinationLatitude: lastRoute?.destinationLatitude,
       destinationLongitude: lastRoute?.destinationLongitude,
+      shape: option.shape,
+      stops: option.stops,
     });
   }
 
@@ -144,7 +146,7 @@ export function RoutesTabScreen() {
       {options.length > 0 ? (
         <>
           <AccessibleText variant="caption" weight="bold" color={c.textSecondary} style={styles.count}>
-            {t('routes.foundCount', { count: options.length })}
+            {t('routes.foundCountLabel', { count: options.length })}
           </AccessibleText>
           {options.map((option, index) => (
             <RouteOptionCard key={`${option.lineId}-${option.boardingStop.id}-${option.alightingStop.id}`} option={option} fastest={index === 0} onOpen={() => open(option)} />

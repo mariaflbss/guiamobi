@@ -10,6 +10,15 @@ import {
   VehiclePositionItem,
 } from '../../types/routes';
 
+const ROUTE_CACHE_TTL_MS = 30_000;
+const routeCache = new Map<string, { expiresAt: number; options: RouteOption[] }>();
+
+function routeCacheKey(origin: Coordinates, destination: Coordinates): string {
+  return [origin.latitude, origin.longitude, destination.latitude, destination.longitude]
+    .map((value) => value.toFixed(5))
+    .join(':');
+}
+
 /**
  * Serviço de rotas de transporte: única camada que conhece os endpoints
  * `/routes/*` da API (Prioridade 1 - "Implementar cálculo/exibição das
@@ -17,6 +26,10 @@ import {
  */
 export const routesService = {
   async searchRoutes(origin: Coordinates, destination: Coordinates): Promise<RouteOption[]> {
+    const key = routeCacheKey(origin, destination);
+    const cached = routeCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.options;
+
     const params = new URLSearchParams({
       originLat: String(origin.latitude),
       originLng: String(origin.longitude),
@@ -28,6 +41,7 @@ export const routesService = {
       authenticated: true,
     });
 
+    routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, options });
     return options;
   },
 

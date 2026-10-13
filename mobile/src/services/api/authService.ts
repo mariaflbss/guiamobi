@@ -22,6 +22,10 @@ export const authService = {
     return httpClient('/auth/login', { method: 'POST', body: input });
   },
 
+  async refresh(refreshToken: string): Promise<AuthSession> {
+    return httpClient('/auth/refresh', { method: 'POST', body: { refreshToken } });
+  },
+
   async forgotPassword(input: ForgotPasswordInput): Promise<{ message: string }> {
     return httpClient('/auth/forgot-password', { method: 'POST', body: input });
   },

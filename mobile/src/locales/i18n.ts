@@ -19,6 +19,9 @@ i18n.use(initReactI18next).init({
   lng: 'pt',
   fallbackLng: 'pt',
   interpolation: { escapeValue: false },
+  // Expo/Android pode não expor Intl.PluralRules em todos os ambientes;
+  // usa o resolvedor compatível do i18next sem depender de polyfill em runtime.
+  compatibilityJSON: 'v3',
 });
 
 export default i18n;

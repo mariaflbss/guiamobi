@@ -7,6 +7,7 @@ import {
 } from './auth.schema';
 import { authService } from './auth.service';
 import { usersService } from '../users/users.service';
+import { env } from '../../config/env';
 
 export const authController = {
   async register(request: FastifyRequest, reply: FastifyReply) {
@@ -19,10 +20,40 @@ export const authController = {
     const body = loginBodySchema.parse(request.body);
     const user = await authService.validateCredentials(body);
 
-    // Token de acesso assinado com os dados mínimos necessários (nunca a senha)
+    // Access token curto + refresh token longo. O app renova o access token
+    // automaticamente quando uma chamada encontra expiração, sem derrubar a sessão.
     const accessToken = await reply.jwtSign({ sub: user.id, email: user.email });
+    const refreshToken = await reply.jwtSign(
+      { sub: user.id, email: user.email, type: 'refresh' },
+      { expiresIn: env.JWT_REFRESH_EXPIRES_IN },
+    );
 
-    return reply.status(200).send({ user, accessToken });
+    return reply.status(200).send({ user, accessToken, refreshToken });
+  },
+
+  async refresh(request: FastifyRequest, reply: FastifyReply) {
+    const body = request.body as { refreshToken?: string };
+    if (!body?.refreshToken) {
+      return reply.status(401).send({ message: 'Sessão inválida. Faça login novamente.' });
+    }
+
+    try {
+      const payload = await request.server.jwt.verify<{ sub: string; email: string; type?: string }>(body.refreshToken);
+      if (payload.type !== 'refresh' || !payload.sub) {
+        return reply.status(401).send({ message: 'Sessão inválida. Faça login novamente.' });
+      }
+
+      const user = await usersService.getProfile(payload.sub);
+      const accessToken = await reply.jwtSign({ sub: user.id, email: user.email });
+      const refreshToken = await reply.jwtSign(
+        { sub: user.id, email: user.email, type: 'refresh' },
+        { expiresIn: env.JWT_REFRESH_EXPIRES_IN },
+      );
+
+      return reply.status(200).send({ user, accessToken, refreshToken });
+    } catch {
+      return reply.status(401).send({ message: 'Sessão inválida. Faça login novamente.' });
+    }
   },
 
   async forgotPassword(request: FastifyRequest, reply: FastifyReply) {

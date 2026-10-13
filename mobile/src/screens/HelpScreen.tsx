@@ -37,7 +37,7 @@ const FAQ: { key: string; icon: LucideIcon }[] = [
  */
 export function HelpScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
-  const { theme, speak } = useAccessibility();
+  const { theme, speak, language } = useAccessibility();
   // Chega já expandida quando aberta a partir de um link específico (ex.: "Política de Privacidade" no cadastro)
   const [openKey, setOpenKey] = useState<string | null>(route.params?.openKey ?? null);
   useStatusBarStyle('light');
@@ -47,8 +47,19 @@ export function HelpScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     speechService.stop();
+    // O conteúdo da Ajuda é fixo. Pré-carregamos as respostas em segundo plano
+    // ao entrar na tela, para que o toque em "Ouvir resposta" não precise
+    // esperar uma nova síntese do Google. A concorrência é limitada no serviço.
+    const allTexts = FAQ.map(({ key }) => `${t(`help.faq.${key}.q`)}. ${t(`help.faq.${key}.a`)}`);
+    const currentText = openKey
+      ? `${t(`help.faq.${openKey}.q`)}. ${t(`help.faq.${openKey}.a`)}`
+      : '';
+    // A resposta atualmente aberta tem prioridade real. Antes, ela entrava
+    // atrás da fila de todas as FAQs e podia ficar vários segundos esperando.
+    speechService.prefetchPriority(currentText, language, allTexts);
     return () => speechService.stop();
-  }, [openKey]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openKey, language]);
 
   return (
     <ScreenContainer

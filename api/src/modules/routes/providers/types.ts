@@ -27,6 +27,8 @@ export interface RouteOption {
   delayMinutes?: number;
   /** Pontos reais do traçado (GTFS shapes.txt), quando disponíveis - usado pela US09. */
   shape?: { latitude: number; longitude: number }[];
+  /** Paradas intermediárias já disponíveis na resposta rápida; evita nova chamada ao clicar na linha. */
+  stops?: LineDetailStop[];
 }
 
 export interface LineSearchResult {

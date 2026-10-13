@@ -3,12 +3,17 @@ import { routesService } from '../services/api/routesService';
 import { LineDetail } from '../types/routes';
 
 /** Carrega o detalhe (paradas em ordem) de uma linha na API. */
-export function useLineDetail(lineId: string) {
-  const [line, setLine] = useState<LineDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export function useLineDetail(lineId: string, prefetchedLine?: LineDetail | null) {
+  const [line, setLine] = useState<LineDetail | null>(prefetchedLine ?? null);
+  const [isLoading, setIsLoading] = useState(!prefetchedLine);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (prefetchedLine) {
+      setLine(prefetchedLine);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setErrorMessage(null);
     try {
@@ -18,7 +23,7 @@ export function useLineDetail(lineId: string) {
     } finally {
       setIsLoading(false);
     }
-  }, [lineId]);
+  }, [lineId, prefetchedLine]);
 
   useEffect(() => {
     load();

@@ -7,6 +7,7 @@ export type AuthStackParamList = {
   Splash: undefined;
   Login: undefined;
   Register: undefined;
+  PrivacyPolicy: undefined;
   ForgotPassword: undefined;
   // Alcançável pelo link do e-mail (deep link) ou manualmente a partir de ForgotPassword
   ResetPassword: { token?: string } | undefined;
@@ -41,6 +42,9 @@ export interface RouteDetailParams {
   originLongitude?: number;
   destinationLatitude?: number;
   destinationLongitude?: number;
+  shape?: { latitude: number; longitude: number }[];
+  stops?: import('../types/routes').LineStopDetail[];
+  simulation?: boolean;
 }
 
 export interface TripSummary {

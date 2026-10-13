@@ -175,6 +175,221 @@ export class GtfsDatabaseProvider implements TransitProvider {
     return points;
   }
 
+  /**
+   * Recupera o itinerário real do GTFS para uma opção calculada pela Google.
+   * A Routes API informa embarque/desembarque e stopCount, mas não entrega
+   * necessariamente cada parada intermediária. Quando o feed oficial local
+   * possui a mesma linha, usamos stop_times.txt para preencher a sequência.
+   */
+  private readonly tripSegmentCache = new Map<string, {
+    expiresAt: number;
+    result: { stops: LineDetail['stops']; shape?: { latitude: number; longitude: number }[] } | null;
+  }>();
+  private readonly tripSegmentInFlight = new Map<string, Promise<{
+    stops: LineDetail['stops'];
+    shape?: { latitude: number; longitude: number }[];
+  } | null>>();
+  private static readonly TRIP_SEGMENT_CACHE_TTL_MS = 60_000;
+
+  /**
+   * Recupera somente as viagens que realmente passam por paradas próximas
+   * ao embarque/desembarque. A implementação anterior carregava TODAS as
+   * viagens da linha + todos os stop_times de cada viagem, o que ficava caro
+   * para linhas com muitos trips.
+   */
+  async getTripSegmentByLineCode(
+    lineCode: string,
+    boarding: { latitude: number; longitude: number },
+    alighting: { latitude: number; longitude: number },
+  ): Promise<{ stops: LineDetail['stops']; shape?: { latitude: number; longitude: number }[] } | null> {
+    const cacheKey = [
+      lineCode.trim().toUpperCase(),
+      boarding.latitude.toFixed(4),
+      boarding.longitude.toFixed(4),
+      alighting.latitude.toFixed(4),
+      alighting.longitude.toFixed(4),
+    ].join(':');
+
+    const cached = this.tripSegmentCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.result;
+
+    const inFlight = this.tripSegmentInFlight.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const request = this.computeTripSegment(lineCode, boarding, alighting, cacheKey);
+    this.tripSegmentInFlight.set(cacheKey, request);
+    try {
+      return await request;
+    } finally {
+      this.tripSegmentInFlight.delete(cacheKey);
+    }
+  }
+
+  private async computeTripSegment(
+    lineCode: string,
+    boarding: { latitude: number; longitude: number },
+    alighting: { latitude: number; longitude: number },
+    cacheKey: string,
+  ): Promise<{ stops: LineDetail['stops']; shape?: { latitude: number; longitude: number }[] } | null> {
+    const startedAt = Date.now();
+
+    const line = await prisma.transitLine.findFirst({
+      where: { dataSource: 'OFFICIAL_GTFS', code: lineCode },
+      select: { id: true },
+    });
+    if (!line) {
+      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
+      return null;
+    }
+
+    const [originCandidates, destinationCandidates] = await Promise.all([
+      this.nearbyStops(boarding.latitude, boarding.longitude, MAX_WALK_DISTANCE_METERS),
+      this.nearbyStops(alighting.latitude, alighting.longitude, MAX_WALK_DISTANCE_METERS),
+    ]);
+
+    if (originCandidates.length === 0 || destinationCandidates.length === 0) {
+      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
+      return null;
+    }
+
+    const originStopIds = originCandidates.map((candidate) => candidate.stop.id);
+    const destinationStopIds = destinationCandidates.map((candidate) => candidate.stop.id);
+    const originDistanceByStopId = new Map(originCandidates.map((candidate) => [candidate.stop.id, candidate.distanceMeters]));
+    const destinationDistanceByStopId = new Map(destinationCandidates.map((candidate) => [candidate.stop.id, candidate.distanceMeters]));
+
+    const originStopTimes = await prisma.transitStopTime.findMany({
+      where: {
+        stopId: { in: originStopIds },
+        trip: { lineId: line.id },
+      },
+      select: {
+        tripId: true,
+        stopId: true,
+        sequence: true,
+        departureTime: true,
+        stop: {
+          select: { id: true, name: true, latitude: true, longitude: true, stopCode: true },
+        },
+        trip: {
+          select: {
+            gtfsShapeId: true,
+            service: { include: { exceptions: true } },
+          },
+        },
+      },
+    });
+
+    if (originStopTimes.length === 0) {
+      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
+      return null;
+    }
+
+    const tripIds = Array.from(new Set(originStopTimes.map((stopTime) => stopTime.tripId)));
+    const destinationStopTimes = await prisma.transitStopTime.findMany({
+      where: {
+        tripId: { in: tripIds },
+        stopId: { in: destinationStopIds },
+      },
+      select: {
+        tripId: true,
+        stopId: true,
+        sequence: true,
+        arrivalTime: true,
+        departureTime: true,
+        stop: {
+          select: { id: true, name: true, latitude: true, longitude: true, stopCode: true },
+        },
+      },
+    });
+
+    const destinationsByTrip = new Map<string, typeof destinationStopTimes>();
+    for (const stopTime of destinationStopTimes) {
+      const list = destinationsByTrip.get(stopTime.tripId);
+      if (list) list.push(stopTime);
+      else destinationsByTrip.set(stopTime.tripId, [stopTime]);
+    }
+
+    let best: {
+      tripId: string;
+      gtfsShapeId: string | null;
+      origin: (typeof originStopTimes)[number];
+      destination: (typeof destinationStopTimes)[number];
+      score: number;
+    } | null = null;
+
+    const today = new Date();
+
+    for (const origin of originStopTimes) {
+      if (!isServiceValidOn(origin.trip.service, today)) continue;
+
+      const candidates = (destinationsByTrip.get(origin.tripId) ?? [])
+        .filter((destination) => destination.sequence > origin.sequence);
+      if (candidates.length === 0) continue;
+
+      const destination = candidates.reduce((closest, current) => {
+        const currentDistance = destinationDistanceByStopId.get(current.stopId) ?? Infinity;
+        const closestDistance = destinationDistanceByStopId.get(closest.stopId) ?? Infinity;
+        return currentDistance < closestDistance ? current : closest;
+      });
+
+      const startDistance = originDistanceByStopId.get(origin.stopId) ?? Infinity;
+      const endDistance = destinationDistanceByStopId.get(destination.stopId) ?? Infinity;
+      const score = startDistance + endDistance;
+
+      if (!best || score < best.score) {
+        best = { tripId: origin.tripId, gtfsShapeId: origin.trip.gtfsShapeId, origin, destination, score };
+      }
+    }
+
+    if (!best) {
+      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
+      return null;
+    }
+
+    const segmentStopTimes = await prisma.transitStopTime.findMany({
+      where: {
+        tripId: best.tripId,
+        sequence: { gte: best.origin.sequence, lte: best.destination.sequence },
+      },
+      orderBy: { sequence: 'asc' },
+      select: {
+        sequence: true,
+        departureTime: true,
+        arrivalTime: true,
+        stop: {
+          select: { id: true, name: true, latitude: true, longitude: true, stopCode: true },
+        },
+      },
+    });
+
+    if (segmentStopTimes.length < 2) {
+      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
+      return null;
+    }
+
+    const firstMinutes = timeStringToMinutes(segmentStopTimes[0].departureTime || segmentStopTimes[0].arrivalTime);
+    const stops = segmentStopTimes.map((stopTime, index) => ({
+      sequence: index + 1,
+      minutesFromStart: Math.max(0, timeStringToMinutes(stopTime.departureTime || stopTime.arrivalTime) - firstMinutes),
+      stop: {
+        id: stopTime.stop.id,
+        name: stopTime.stop.name,
+        latitude: stopTime.stop.latitude,
+        longitude: stopTime.stop.longitude,
+        stopCode: stopTime.stop.stopCode,
+      },
+    }));
+
+    const result = { stops, shape: await this.getTripShape(best.gtfsShapeId) };
+    this.tripSegmentCache.set(cacheKey, {
+      expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS,
+      result,
+    });
+
+    console.info(`[GTFS] enriquecimento ${lineCode} concluído em ${Date.now() - startedAt}ms (${originStopTimes.length} embarques candidatos, ${tripIds.length} trips, ${segmentStopTimes.length} paradas).`);
+    return result;
+  }
+
   async searchLines(term: string): Promise<LineSearchResult[]> {
     const lines = await prisma.transitLine.findMany({
       where: {

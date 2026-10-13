@@ -87,11 +87,12 @@ const PAGE_SCRIPT = `
   map.setView([0, 0], 2);
 
   // Painéis separados: a ordem de empilhamento não depende da ordem de redesenho.
-  [['shape', 410], ['stops', 420], ['pois', 430], ['favorites', 435], ['vehicles', 440], ['user', 450]].forEach(function (p) {
+  [['shape', 410], ['traveled', 415], ['stops', 420], ['pois', 430], ['favorites', 435], ['vehicles', 440], ['user', 450]].forEach(function (p) {
     map.createPane(p[0]).style.zIndex = p[1];
   });
   var groups = {
     shape: L.layerGroup().addTo(map),
+    traveled: L.layerGroup().addTo(map),
     stops: L.layerGroup().addTo(map),
     pois: L.layerGroup().addTo(map),
     favorites: L.layerGroup().addTo(map),
@@ -306,6 +307,13 @@ const PAGE_SCRIPT = `
       }
     }
 
+    if (sig('traveled', [d.traveledShape, colors])) {
+      groups.traveled.clearLayers();
+      if (d.traveledShape && d.traveledShape.length > 1) {
+        groups.traveled.addLayer(L.polyline(d.traveledShape, { pane: 'traveled', color: colors.line, weight: 8, opacity: 1, interactive: false }));
+      }
+    }
+
     if (sig('pois', [d.pois, labels.poi, labels.unnamedPoi])) {
       groups.pois.clearLayers();
       d.pois.forEach(function (p) {
@@ -328,7 +336,7 @@ const PAGE_SCRIPT = `
         var title = f.nickname || labels.favorite;
         var category = f.category && labels.favoriteCategories && labels.favoriteCategories[f.category] ? labels.favoriteCategories[f.category] : '';
         var lines = [title, category, f.address || ''];
-        groups.favorites.addLayer(hit(latlng, 'favorites', popupEl(lines), { type: 'favorite', text: title + (f.address ? '. ' + f.address : '') }));
+        groups.favorites.addLayer(hit(latlng, 'favorites', popupEl(lines), { type: 'favorite', text: [title, category, f.address || ''].filter(Boolean).join('. ') }));
       });
     }
 

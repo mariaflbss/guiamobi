@@ -10,7 +10,14 @@ import { Coordinates } from '../types/location';
  */
 export function useNearbyPois(center: Coordinates | null | undefined) {
   const [items, setItems] = useState<PoiItem[]>([]);
-  const key = center ? `${center.latitude.toFixed(4)},${center.longitude.toFixed(4)}` : null;
+  // O usuário pode se mover dezenas de vezes por minuto durante a navegação.
+  // Não fazemos uma chamada ao backend para cada pequena mudança: agrupamos a
+  // posição em células de aproximadamente 500 m. Assim os POIs permanecem
+  // visíveis enquanto a consulta seguinte é feita e mudam conforme a viagem
+  // realmente entra em outra região.
+  const key = center
+    ? `${(Math.round(center.latitude / 0.003) * 0.003).toFixed(3)},${(Math.round(center.longitude / 0.003) * 0.003).toFixed(3)}`
+    : null;
 
   useEffect(() => {
     if (!center || !key) return;
@@ -21,7 +28,8 @@ export function useNearbyPois(center: Coordinates | null | undefined) {
         if (!cancelled) setItems(result);
       })
       .catch(() => {
-        if (!cancelled) setItems([]);
+        // Não apaga os POIs anteriores só porque uma consulta transitória
+        // falhou. Eles continuam válidos até haver uma resposta nova.
       });
     return () => {
       cancelled = true;

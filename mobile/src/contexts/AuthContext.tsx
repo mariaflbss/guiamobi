@@ -33,6 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await secureStorageService.removeItem(SECURE_STORE_KEYS.ACCESS_TOKEN);
+    await secureStorageService.removeItem(SECURE_STORE_KEYS.REFRESH_TOKEN);
     await secureStorageService.removeItem(SECURE_STORE_KEYS.USER);
     setShouldShowTutorial(false);
     setUser(null);
@@ -52,8 +53,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const savedUser = await secureStorageService.getObject<User>(SECURE_STORE_KEYS.USER);
       const savedToken = await secureStorageService.getItem(SECURE_STORE_KEYS.ACCESS_TOKEN);
+      const savedRefreshToken = await secureStorageService.getItem(SECURE_STORE_KEYS.REFRESH_TOKEN);
 
-      if (savedUser && savedToken) {
+      if (savedUser && savedToken && savedRefreshToken) {
         const pending = await secureStorageService.getItem(tutorialPendingKey(savedUser.id));
         setShouldShowTutorial(pending === '1');
         setUser(savedUser);
@@ -65,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function persistSession(session: AuthSession) {
     await secureStorageService.setItem(SECURE_STORE_KEYS.ACCESS_TOKEN, session.accessToken);
+    await secureStorageService.setItem(SECURE_STORE_KEYS.REFRESH_TOKEN, session.refreshToken);
     await secureStorageService.setObject(SECURE_STORE_KEYS.USER, session.user);
     setUser(session.user);
   }

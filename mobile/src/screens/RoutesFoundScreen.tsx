@@ -10,6 +10,7 @@ import { InlineMessage } from '../components/InlineMessage';
 import { RouteOptionCard } from '../components/RouteOptionCard';
 import { SimpleRouteCard } from '../components/SimpleRouteCard';
 import { useAccessibility } from '../contexts/AccessibilityContext';
+import { speechService } from '../services/speech/speechService';
 import { useSearchHistory } from '../hooks/useSearchHistory';
 import { useRouteOptions } from '../hooks/useRouteOptions';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
@@ -26,13 +27,24 @@ type Props = NativeStackScreenProps<AppStackParamList, 'RoutesFound'>;
  */
 export function RoutesFoundScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
-  const { theme, announce, settings } = useAccessibility();
+  const { theme, announce, settings, language } = useAccessibility();
   const { addSearch, setChosenLine } = useSearchHistory();
   const { origin, destination, historyId } = route.params;
   const { options, isLoading, errorMessage, hasTransitData } = useRouteOptions(origin, destination);
   const historyIdRef = useRef<string | undefined>(historyId);
   const announcedRef = useRef(false);
   useStatusBarStyle('light');
+
+  useEffect(() => {
+    speechService.stop();
+    // A busca de linhas acontece em paralelo; pré-carrega contagens curtas para
+    // o anúncio de resultado começar sem esperar uma chamada de voz nova.
+    for (let count = 1; count <= 6; count += 1) {
+      speechService.prefetch(t('routes.foundCountSpoken', { count }), language);
+    }
+    return () => speechService.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
 
   useEffect(() => {
     if (historyIdRef.current) return;
@@ -53,7 +65,7 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
     announcedRef.current = true;
     if (errorMessage) announce(errorMessage, { haptic: 'error' });
     else if (options.length === 0) announce(hasTransitData ? t('routes.notFound') : t('routes.noTransitData'), { haptic: 'warning' });
-    else announce(t('routes.foundCount', { count: options.length }), { haptic: 'success' });
+    else announce(t('routes.foundCountSpoken', { count: options.length }), { haptic: 'success' });
   }, [isLoading, errorMessage, options.length, hasTransitData, announce, t]);
 
   function openDetail(option: RouteOption) {
@@ -74,6 +86,8 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
       originLongitude: origin.longitude,
       destinationLatitude: destination.latitude,
       destinationLongitude: destination.longitude,
+      shape: option.shape,
+      stops: option.stops,
     });
   }
 
@@ -111,7 +125,7 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
         ) : (
           <>
             <AccessibleText variant="caption" weight="bold" color={c.textSecondary} style={styles.count}>
-              {t('routes.foundCount', { count: options.length })}
+              {t('routes.foundCountLabel', { count: options.length })}
             </AccessibleText>
             {options.map((option, index) => (
               <RouteOptionCard key={`${option.lineId}-${option.boardingStop.id}-${option.alightingStop.id}`} option={option} fastest={index === 0} onOpen={() => openDetail(option)} />

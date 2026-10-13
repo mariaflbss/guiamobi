@@ -51,10 +51,14 @@ export function ArrivalScreen({ route, navigation }: Props) {
     );
   }
 
+  const durationText = t('arrival.minutes', { count: elapsedMinutes });
+  const durationValue = durationText === 'arrival.minutes' ? (elapsedMinutes === 1 ? '1 minuto' : `${elapsedMinutes} minutos`) : durationText;
+  const stopsText = trip.stopsCount != null ? t('arrival.stopsValue', { count: trip.stopsCount }) : null;
+  const stopsValue = stopsText === 'arrival.stopsValue' ? (trip.stopsCount === 1 ? '1 parada' : `${trip.stopsCount} paradas`) : stopsText;
   const rows: { label: string; value: string }[] = [
     { label: t('arrival.line'), value: `${trip.lineCode} · ${trip.lineName}` },
-    { label: t('arrival.duration'), value: t('arrival.minutes', { count: elapsedMinutes }) },
-    ...(trip.stopsCount ? [{ label: t('arrival.stops'), value: t('arrival.stopsValue', { count: trip.stopsCount }) }] : []),
+    { label: t('arrival.duration'), value: durationValue },
+    ...(stopsValue ? [{ label: t('arrival.stops'), value: stopsValue }] : []),
     { label: t('arrival.arrivalTime'), value: formatClock(arrivedAt) },
   ];
 

@@ -15,6 +15,7 @@ import { RecentRouteRow } from '../components/RecentRouteRow';
 import { SimpleHomeScreen } from './SimpleHomeScreen';
 import { useAuth } from '../hooks/useAuth';
 import { useAccessibility } from '../contexts/AccessibilityContext';
+import { speechService } from '../services/speech/speechService';
 import { useRouteDraft, DraftPlace } from '../contexts/RouteDraftContext';
 import { useConnectivity } from '../hooks/useConnectivity';
 import { useLocationSearch } from '../hooks/useLocationSearch';
@@ -106,6 +107,7 @@ function FullHome() {
       return;
     }
     setMissingMessage(false);
+    speechService.stop();
     navigation.navigate('RoutesFound', { origin: draft.origin, destination: draft.destination });
   }
 

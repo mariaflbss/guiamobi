@@ -14,6 +14,25 @@ const SPEECH_RATE_MAP: Record<SpeechRate, number> = { lenta: 0.75, normal: 1.0, 
 const LANGUAGE_LOCALE_MAP: Record<SupportedLanguage, string> = { pt: 'pt-BR', en: 'en-US', es: 'es-ES' };
 let activePlayer: AudioPlayer | null = null;
 let requestGeneration = 0;
+// Cache de memória e deduplicação: toques repetidos não iniciam downloads paralelos.
+const audioUriCache = new Map<string, string>();
+const pendingAudio = new Map<string, Promise<string>>();
+const MAX_MEMORY_CACHE = 80;
+const PREFETCH_CONCURRENCY = 3;
+
+function cacheKey(text: string, language: SupportedLanguage): string {
+  return `${language}:${stableHash(text)}`;
+}
+
+function rememberAudio(key: string, uri: string): void {
+  audioUriCache.delete(key);
+  audioUriCache.set(key, uri);
+  while (audioUriCache.size > MAX_MEMORY_CACHE) {
+    const oldest = audioUriCache.keys().next().value;
+    if (oldest === undefined) break;
+    audioUriCache.delete(oldest);
+  }
+}
 
 function stableHash(value: string): string {
   // Hash determinístico simples para nomes de cache (não é usado para segurança).
@@ -40,24 +59,46 @@ function stopCurrentAudio(): void {
 }
 
 async function getCachedAudio(text: string, language: SupportedLanguage): Promise<string> {
-  const cacheDir = FileSystem.cacheDirectory;
-  if (!cacheDir) throw new Error('Armazenamento temporário indisponível.');
-  const uri = `${cacheDir}guiamobi-tts-${stableHash(`${language}:${text}`)}.mp3`;
-  const existing = await FileSystem.getInfoAsync(uri);
-  if (existing.exists && existing.size && existing.size > 0) return uri;
+  const key = cacheKey(text, language);
+  const inMemory = audioUriCache.get(key);
+  if (inMemory) return inMemory;
+  const pending = pendingAudio.get(key);
+  if (pending) return pending;
 
-  const response = await fetch(`${API_URL.replace(/\/$/, '')}/speech/synthesize`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, language }),
-  });
-  if (!response.ok) throw new Error(`Síntese neural indisponível (${response.status}).`);
-  const result = (await response.json()) as { audioContent?: string };
-  if (!result.audioContent) throw new Error('A API não retornou áudio.');
-  await FileSystem.writeAsStringAsync(uri, result.audioContent, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  return uri;
+  const task = (async () => {
+    // Áudio TTS é um dado de cache útil entre sessões: use armazenamento
+    // persistente do app em vez de cache temporário, que o sistema pode limpar
+    // sem aviso. Isso evita repetir a síntese na próxima abertura.
+    const cacheDir = FileSystem.documentDirectory;
+    if (!cacheDir) throw new Error('Armazenamento do aplicativo indisponível.');
+    const uri = `${cacheDir}guiamobi-tts-${stableHash(`${language}:${text}`)}.mp3`;
+    const existing = await FileSystem.getInfoAsync(uri);
+    if (existing.exists && existing.size && existing.size > 0) {
+      rememberAudio(key, uri);
+      return uri;
+    }
+
+    const response = await fetch(`${API_URL.replace(/\/$/, '')}/speech/synthesize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, language }),
+    });
+    if (!response.ok) throw new Error(`Síntese neural indisponível (${response.status}).`);
+    const result = (await response.json()) as { audioContent?: string };
+    if (!result.audioContent) throw new Error('A API não retornou áudio.');
+    await FileSystem.writeAsStringAsync(uri, result.audioContent, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    rememberAudio(key, uri);
+    return uri;
+  })();
+
+  pendingAudio.set(key, task);
+  try {
+    return await task;
+  } finally {
+    if (pendingAudio.get(key) === task) pendingAudio.delete(key);
+  }
 }
 
 function speakNatively(text: string, options: { rate: SpeechRate; language: SupportedLanguage }): void {
@@ -68,6 +109,48 @@ function speakNatively(text: string, options: { rate: SpeechRate; language: Supp
 }
 
 export const speechService = {
+  /** Pré-carrega a fala durante o tempo de leitura da tela, sem reproduzi-la. */
+  prefetch(text: string, language: SupportedLanguage): void {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+    void getCachedAudio(cleanText, language).catch(() => {
+      // A falha de pré-carregamento não interrompe a navegação; speak fará fallback.
+    });
+  },
+
+  /** Pré-carrega primeiro a frase que o usuário provavelmente vai ouvir. */
+  prefetchPriority(text: string, language: SupportedLanguage, rest: string[] = []): void {
+    const clean = text.trim();
+    if (clean) void getCachedAudio(clean, language).catch(() => undefined);
+    const others = rest.filter((item) => item.trim() && item.trim() !== clean);
+    if (others.length) this.prefetchMany(others, language);
+  },
+
+  /**
+   * Pré-carrega um conjunto de frases com concorrência limitada. Disparar
+   * dezenas de sínteses simultaneamente deixa a rede e o backend mais lentos
+   * justamente na hora em que o usuário espera uma resposta.
+   */
+  prefetchMany(texts: string[], language: SupportedLanguage): void {
+    const unique = Array.from(new Set(texts.map((text) => text.trim()).filter(Boolean)));
+    if (!unique.length) return;
+
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < unique.length) {
+        const index = cursor;
+        cursor += 1;
+        try {
+          await getCachedAudio(unique[index], language);
+        } catch {
+          // O pré-carregamento é oportunista; uma falha não bloqueia a tela.
+        }
+      }
+    };
+
+    void Promise.all(Array.from({ length: Math.min(PREFETCH_CONCURRENCY, unique.length) }, worker));
+  },
+
   speak(text: string, options: { rate: SpeechRate; language: SupportedLanguage }): void {
     const cleanText = text.trim();
     if (!cleanText) return;

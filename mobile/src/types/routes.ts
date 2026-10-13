@@ -22,6 +22,8 @@ export interface RouteOption {
   delayMinutes?: number;
   /** Traçado real (GTFS shapes.txt), quando o provider ativo tem essa geometria. */
   shape?: { latitude: number; longitude: number }[];
+  /** Paradas intermediárias carregadas junto com a opção para abrir a linha sem nova requisição. */
+  stops?: LineStopDetail[];
 }
 
 export interface LineStopDetail {

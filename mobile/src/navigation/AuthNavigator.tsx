@@ -4,6 +4,7 @@ import { AuthStackParamList } from './types';
 import { SplashScreen } from '../screens/SplashScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
+import { PrivacyPolicyScreen } from '../screens/PrivacyPolicyScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
 import { ResetPasswordScreen } from '../screens/ResetPasswordScreen';
 
@@ -20,6 +21,7 @@ export function AuthNavigator() {
       <Stack.Screen name="Splash" component={SplashScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </Stack.Navigator>

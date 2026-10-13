@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AccessibilityInfo, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { CommonActions } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
@@ -31,15 +31,14 @@ const STEPS: { key: string; icon: LucideIcon }[] = [
 
 /**
  * Tutorial acessível passo a passo. Abre sozinho logo após o cadastro
- * (primeiro acesso) e continua disponível em Configurações. Cada passo:
- * título como cabeçalho, contagem "Passo X de Y" anunciada, e voz -
- * anunciada sozinha quando o feedback por voz está ativo e NÃO há leitor
- * de tela (que já leria o conteúdo), ou sob demanda em "Ouvir explicação".
+ * (primeiro acesso) e continua disponível em Configurações. Cada passo é
+ * pré-carregado em segundo plano; a explicação só é falada sob demanda em
+ * "Ouvir explicação", evitando anúncios longos e inesperados.
  * O usuário pode voltar, avançar, pular ou concluir a qualquer momento.
  */
 export function TutorialScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
-  const { theme, announce, speak, language, voiceEnabled } = useAccessibility();
+  const { theme, speak, language } = useAccessibility();
   const { completeTutorial } = useAuth();
   const firstAccess = Boolean(route.params?.firstAccess);
   const [index, setIndex] = useState(0);
@@ -53,17 +52,23 @@ export function TutorialScreen({ navigation, route }: Props) {
   const description = t(`tutorial.steps.${step.key}.description`);
 
   useEffect(() => {
-    let cancelled = false;
+    // Não lê automaticamente o texto inteiro ao abrir/avançar: a explicação
+    // só é falada quando a pessoa toca em "Ouvir explicação". O pré-carregamento
+    // acontece enquanto ela lê, para reduzir a espera no toque.
     speechService.stop();
-    AccessibilityInfo.isScreenReaderEnabled().then((screenReader) => {
-      if (!cancelled && !screenReader && voiceEnabled) {
-        announce(`${t('tutorial.stepOf', { current: index + 1, total: STEPS.length })}. ${title}. ${description}`);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-    // fala o passo ao mudar de passo (idioma/voz lidos no momento)
+    const allStepTexts = STEPS.map((item) =>
+      `${t(`tutorial.steps.${item.key}.title`)}. ${t(`tutorial.steps.${item.key}.description`)}`,
+    );
+    speechService.prefetchMany(allStepTexts, language);
+    // Mantém também o passo atual e o próximo como prioridade imediata.
+    speechService.prefetch(`${title}. ${description}`, language);
+    const next = STEPS[index + 1];
+    if (next) {
+      speechService.prefetch(
+        `${t(`tutorial.steps.${next.key}.title`)}. ${t(`tutorial.steps.${next.key}.description`)}`,
+        language,
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, language]);
 
