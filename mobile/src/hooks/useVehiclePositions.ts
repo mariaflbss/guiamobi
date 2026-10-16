@@ -9,7 +9,7 @@ const POLL_INTERVAL_MS = 15000;
  * backend. Se a fonte não estiver configurada (`available: false`), não
  * repete a consulta e devolve lista vazia - nunca inventa posição.
  */
-export function useVehiclePositions(lineId: string) {
+export function useVehiclePositions(lineId: string, enabled = true) {
   const [vehicles, setVehicles] = useState<VehiclePositionItem[]>([]);
   const [available, setAvailable] = useState(false);
 
@@ -30,12 +30,12 @@ export function useVehiclePositions(lineId: string) {
       }
     }
 
-    load();
+    if (enabled) load();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [lineId]);
+  }, [lineId, enabled]);
 
   return { vehicles, available };
 }

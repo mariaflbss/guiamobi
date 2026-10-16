@@ -25,6 +25,7 @@ import { locationService } from '../services/location/locationService';
 import { AppStackParamList } from '../navigation/types';
 import { Coordinates } from '../types/location';
 import { distanceMeters } from '../utils/geo';
+import { speechService } from '../services/speech/speechService';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Tracking'>;
 
@@ -61,12 +62,12 @@ export function TrackingScreen({ route, navigation }: Props) {
     officialSourceUrl: null,
   } : null, [p.lineId, p.lineCode, p.lineName, p.stops, p.shape]);
   const { line, isLoading, errorMessage } = useLineDetail(p.lineId, prefetchedLine);
-  const { vehicles } = useVehiclePositions(p.lineId);
   const { favorites } = useFavorites();
   const insets = useSafeAreaInsets();
   useStatusBarStyle('light');
   const c = theme.colors;
   const isFocused = useIsFocused();
+  const { vehicles } = useVehiclePositions(p.lineId, isFocused);
 
   const [user, setUser] = useState<Coordinates | null>(null);
   const [simulationActive, setSimulationActive] = useState(p.simulation === true);
@@ -87,6 +88,15 @@ export function TrackingScreen({ route, navigation }: Props) {
   const stops = useMemo(() => line?.stops ?? [], [line]);
   const boardingIndex = stops.findIndex((s) => s.stop.id === p.boardingStopId);
   const destinationIndex = stops.findIndex((s) => s.stop.id === p.alightingStopId);
+
+  // Prepara a mensagem crítica de 200 m desde o início da viagem. Assim,
+  // quando o alerta aparecer, normalmente o MP3 já estará no cache local e
+  // a fala não dependerá de uma chamada de rede naquele instante.
+  useEffect(() => {
+    if (destinationIndex < 0 || !stops[destinationIndex]?.stop?.name) return;
+    const alertText = t('stopAlert.spoken', { name: stops[destinationIndex].stop.name });
+    if (isFocused) speechService.prefetch(alertText, language);
+  }, [destinationIndex, stops, language, t]);
   const ready = stops.length > 0 && boardingIndex >= 0 && destinationIndex > boardingIndex;
 
   const rawRouteShape = useMemo(() => {
@@ -121,11 +131,14 @@ export function TrackingScreen({ route, navigation }: Props) {
     return [boarding, destination];
   }, [ready, stops, boardingIndex, destinationIndex, rawRouteShape, nearestShapeIndex]);
 
-  // Modo demonstração: aproximadamente 10 segundos entre cada parada.
+  // Modo demonstração: aproximadamente 20 segundos entre cada parada.
+  // O intervalo maior deixa a movimentação perceptível e dá tempo para os POIs
+  // serem atualizados conforme o usuário avança pelo trajeto.
   // O tempo é distribuído pelo traçado real entre as paradas, mantendo o
   // marcador sobre a geometria da rua em vez de fazê-lo saltar em linha reta.
   const stopCountForSimulation = Math.max(1, destinationIndex - boardingIndex);
-  const totalDurationMs = stopCountForSimulation * 10_000;
+  const SIMULATION_MS_PER_STOP = 20_000;
+  const totalDurationMs = stopCountForSimulation * SIMULATION_MS_PER_STOP;
 
   const simulationStopProgress = useMemo(() => {
     if (!simulationActive || !ready || simulationPath.length < 2) return null;
@@ -243,17 +256,17 @@ export function TrackingScreen({ route, navigation }: Props) {
 
   // Dados reais para o mapa (US09): POIs do OpenStreetMap ao redor do usuário e
   // endereço real (rua/número, quando o OSM tem) da próxima parada.
-  const nearbyPois = useNearbyPois(user);
+  const nearbyPois = useNearbyPois(user, isFocused);
   const nextStopForReference = progress ? stops[progress.nextIndex]?.stop : null;
-  const nextStopPois = useNearbyPois(nextStopForReference);
+  const nextStopPois = useNearbyPois(nextStopForReference, isFocused);
   const routePois = useMemo(() => {
     const merged = new Map<string, typeof nearbyPois[number]>();
     [...nearbyPois, ...nextStopPois].forEach((poi) => merged.set(poi.id, poi));
     return Array.from(merged.values());
   }, [nearbyPois, nextStopPois]);
-  const nearbyLines = useNearbyLines(user);
+  const nearbyLines = useNearbyLines(user, isFocused);
   const atStopLines = nearbyLines.filter((item) => item.stop.distanceMeters <= 40);
-  const nextStopAddress = useStopAddress(progress ? stops[progress.nextIndex]?.stop : null);
+  const nextStopAddress = useStopAddress(progress ? stops[progress.nextIndex]?.stop : null, isFocused);
 
   function formatDistance(meters: number | null): string {
     if (meters === null) return '--';

@@ -92,10 +92,9 @@ model TransitStop {
 
 model TransitLine {
   id        String   @id @default(uuid())
-  // Não é globalmente único: o mesmo número de linha real (ex.: "101") pode
-  // existir tanto no catálogo de desenvolvimento quanto, mais tarde, num
-  // GTFS oficial importado - são registros diferentes até a fixture ser
-  // desativada. A combinação (code, dataSource) é que precisa ser única.
+  // Código exibido ao usuário (route_short_name no GTFS).
+  // NÃO é identificador único: o feed oficial pode repetir o mesmo código
+  // para route_id diferentes. A identidade da rota é gtfsRouteId.
   code      String   // ex.: "315"
   name      String            // ex.: "Parque Interlagos / Terminal Central"
   dataSource TransitDataSource @default(DEV_FIXTURE) @map("data_source")
@@ -116,7 +115,8 @@ model TransitLine {
   departures TransitDeparture[]
   trips    TransitTrip[]
 
-  @@unique([code, dataSource])
+  @@index([code])
+  @@index([dataSource])
   @@map("transit_lines")
 }
 

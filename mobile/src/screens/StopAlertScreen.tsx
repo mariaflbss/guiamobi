@@ -10,6 +10,8 @@ import { AccessibleButton } from '../components/AccessibleButton';
 import { Icon } from '../components/Icon';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
+import { speechService } from '../services/speech/speechService';
+import { hapticsService } from '../services/haptics/hapticsService';
 import { AppStackParamList } from '../navigation/types';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'StopAlert'>;
@@ -22,17 +24,26 @@ type Props = NativeStackScreenProps<AppStackParamList, 'StopAlert'>;
  */
 export function StopAlertScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
-  const { theme, announce, voiceEnabled, hapticsEnabled } = useAccessibility();
+  const { theme, voiceEnabled, hapticsEnabled, language, settings } = useAccessibility();
   const { stopName } = route.params;
   useStatusBarStyle(theme.dark ? 'light' : 'dark');
   const c = theme.colors;
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      announce(t('stopAlert.spoken', { name: stopName }), { haptic: 'warning' });
-    }, 250);
-    return () => clearTimeout(timer);
-    // dispara uma única vez ao abrir, depois que a tela ganha foco
+    const message = t('stopAlert.spoken', { name: stopName });
+
+    // O alerta é uma mensagem crítica. Ele ganha prioridade imediatamente,
+    // sem esperar 250 ms, para reduzir a janela em que outro anúncio poderia
+    // iniciar. O áudio também é pré-carregado durante a viagem no TrackingScreen.
+    if (voiceEnabled) {
+      speechService.speakPriority(message, { rate: settings.speechRate, language });
+    }
+    if (hapticsEnabled) hapticsService.warning();
+
+    return () => {
+      speechService.stop();
+    };
+    // dispara uma única vez ao abrir
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

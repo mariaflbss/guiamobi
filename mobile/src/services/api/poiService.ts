@@ -20,22 +20,23 @@ export interface StopAddress {
 
 export const poiService = {
   /** Pontos de referência reais (OpenStreetMap via API). Vazio quando o OSM não tem nada na região. */
-  async nearby(center: Coordinates, radius = 500, categories: PoiCategory[] = []): Promise<PoiItem[]> {
+  async nearby(center: Coordinates, radius = 500, categories: PoiCategory[] = [], signal?: AbortSignal): Promise<PoiItem[]> {
     const params = new URLSearchParams({
       lat: String(center.latitude),
       lng: String(center.longitude),
       radius: String(radius),
     });
     if (categories.length > 0) params.set('categories', categories.join(','));
-    const { items } = await httpClient<{ items: PoiItem[] }>(`/poi/nearby?${params.toString()}`, { authenticated: true });
+    const { items } = await httpClient<{ items: PoiItem[] }>(`/poi/nearby?${params.toString()}`, { authenticated: true, signal });
     return items;
   },
 
   /** Endereço real de um ponto (nome da rua/número quando o OSM tem). null = sem endereço conhecido. */
-  async reverseAddress(point: Coordinates): Promise<StopAddress | null> {
+  async reverseAddress(point: Coordinates, signal?: AbortSignal): Promise<StopAddress | null> {
     const params = new URLSearchParams({ lat: String(point.latitude), lng: String(point.longitude) });
     const { address } = await httpClient<{ address: StopAddress | null }>(`/geocode/reverse?${params.toString()}`, {
       authenticated: true,
+      signal,
     });
     return address;
   },

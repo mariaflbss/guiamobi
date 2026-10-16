@@ -21,6 +21,7 @@
 import AdmZip from 'adm-zip';
 import { parse } from 'csv-parse/sync';
 import { randomUUID } from 'crypto';
+import path from 'path';
 import { PrismaClient } from '@prisma/client';
 import {
   GtfsAgencyRow,
@@ -62,13 +63,9 @@ async function chunked<T>(items: T[], fn: (batch: T[]) => Promise<unknown>) {
 }
 
 async function main() {
-  const source = process.argv[2];
-  if (!source) {
-    console.error('Uso: npm run import:gtfs -- <caminho-ou-url-do-feed.zip>');
-    process.exit(1);
-  }
-
+  const source = process.argv[2] || path.resolve(__dirname, '../../../data/google_transit.zip');
   const zip = await loadZip(source);
+  console.log(`Fonte GTFS: ${source}`);
 
   const agencies = readCsv<GtfsAgencyRow>(zip, 'agency.txt');
   const routes = readCsv<GtfsRouteRow>(zip, 'routes.txt');
@@ -119,6 +116,8 @@ async function main() {
         code,
         name,
         dataSource: 'OFFICIAL_GTFS',
+        isOfficialData: true,
+        officialSourceUrl: 'https://sjc-infobus.engdb.com.br/infoponto/google_transit.zip',
         routeType: r.route_type ? Number(r.route_type) : null,
         agencyId,
       },
@@ -128,6 +127,7 @@ async function main() {
         name,
         dataSource: 'OFFICIAL_GTFS',
         isOfficialData: true,
+        officialSourceUrl: 'https://sjc-infobus.engdb.com.br/infoponto/google_transit.zip',
         routeType: r.route_type ? Number(r.route_type) : null,
         agencyId,
       },

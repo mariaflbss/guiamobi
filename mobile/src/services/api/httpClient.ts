@@ -28,7 +28,12 @@ interface RequestOptions {
   body?: unknown;
   authenticated?: boolean;
   skipRefresh?: boolean;
+  /** Permite à tela cancelar a requisição ao sair (libera a conexão). */
+  signal?: AbortSignal;
 }
+
+// Rede de segurança: nenhuma chamada fica pendente para sempre (o fetch do RN não tem timeout).
+const REQUEST_TIMEOUT_MS = 20_000;
 
 /**
  * Cliente HTTP mínimo baseado em fetch, com anexação automática do token
@@ -70,7 +75,7 @@ export async function httpClient<TResponse>(
   path: string,
   options: RequestOptions = {},
 ): Promise<TResponse> {
-  const { method = 'GET', body, authenticated = false, skipRefresh = false } = options;
+  const { method = 'GET', body, authenticated = false, skipRefresh = false, signal } = options;
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -88,18 +93,29 @@ export async function httpClient<TResponse>(
 
   let response: Response;
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+
   try {
     response = await fetch(`${API_URL}${path}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
     });
   } catch (error) {
-    console.error('[HTTP] Falha na requisição:', {
-      url: `${API_URL}${path}`,
-      method,
-      error,
-    });
+    clearTimeout(timer);
+    if (!signal?.aborted) {
+      console.error('[HTTP] Falha na requisição:', {
+        url: `${API_URL}${path}`,
+        method,
+        error,
+      });
+    }
 
     throw new ApiError(
       'Não foi possível conectar ao servidor. Verifique sua conexão.',
@@ -108,6 +124,7 @@ export async function httpClient<TResponse>(
   }
 
   const data = await response.json().catch(() => ({}));
+  clearTimeout(timer);
 
   if (!response.ok) {
     if (response.status === 401 && authenticated && !skipRefresh) {

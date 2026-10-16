@@ -90,7 +90,7 @@ export const routesService = {
   },
 
   /** Linhas que atendem paradas perto de um ponto (ex.: onde o usuário está). */
-  async getNearbyLines(point: Coordinates, radiusMeters = 150): Promise<NearbyLineItem[]> {
+  async getNearbyLines(point: Coordinates, radiusMeters = 150, signal?: AbortSignal): Promise<NearbyLineItem[]> {
     const params = new URLSearchParams({
       lat: String(point.latitude),
       lng: String(point.longitude),
@@ -98,6 +98,7 @@ export const routesService = {
     });
     const { lines } = await httpClient<{ lines: NearbyLineItem[] }>(`/routes/nearby-lines?${params.toString()}`, {
       authenticated: true,
+      signal,
     });
     return lines;
   },

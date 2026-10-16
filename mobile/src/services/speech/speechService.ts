@@ -14,6 +14,9 @@ const SPEECH_RATE_MAP: Record<SpeechRate, number> = { lenta: 0.75, normal: 1.0, 
 const LANGUAGE_LOCALE_MAP: Record<SupportedLanguage, string> = { pt: 'pt-BR', en: 'en-US', es: 'es-ES' };
 let activePlayer: AudioPlayer | null = null;
 let requestGeneration = 0;
+// Quando uma tela crítica (ex.: alerta de 200 m) está falando, os anúncios
+// periódicos da tela de acompanhamento não podem interromper essa mensagem.
+let prioritySpeechActive = false;
 // Cache de memória e deduplicação: toques repetidos não iniciam downloads paralelos.
 const audioUriCache = new Map<string, string>();
 const pendingAudio = new Map<string, Promise<string>>();
@@ -152,6 +155,7 @@ export const speechService = {
   },
 
   speak(text: string, options: { rate: SpeechRate; language: SupportedLanguage }): void {
+    if (prioritySpeechActive) return;
     const cleanText = text.trim();
     if (!cleanText) return;
     stopCurrentAudio();
@@ -175,7 +179,33 @@ export const speechService = {
     })();
   },
 
+  /**
+   * Fala prioritária para mensagens que não podem ser cortadas por anúncios
+   * periódicos da tela anterior. A prioridade permanece ativa até stop().
+   */
+  speakPriority(text: string, options: { rate: SpeechRate; language: SupportedLanguage }): void {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+    prioritySpeechActive = true;
+    stopCurrentAudio();
+    const generation = ++requestGeneration;
+
+    void (async () => {
+      try {
+        const uri = await getCachedAudio(cleanText, options.language);
+        if (generation !== requestGeneration || !prioritySpeechActive) return;
+        activePlayer = createAudioPlayer(uri);
+        activePlayer.setPlaybackRate(SPEECH_RATE_MAP[options.rate], 'high');
+        activePlayer.play();
+      } catch {
+        if (generation !== requestGeneration || !prioritySpeechActive) return;
+        speakNatively(cleanText, options);
+      }
+    })();
+  },
+
   stop(): void {
+    prioritySpeechActive = false;
     requestGeneration += 1;
     stopCurrentAudio();
   },

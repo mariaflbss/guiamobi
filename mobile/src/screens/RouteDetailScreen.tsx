@@ -47,12 +47,6 @@ export function RouteDetailScreen({ route, navigation }: Props) {
   const c = theme.colors;
 
   useEffect(() => {
-    // Opções calculadas pela Google usam IDs virtuais e não possuem alerta
-    // operacional local. Evita uma requisição que nunca acrescentaria dados.
-    if (p.lineId.startsWith('google:')) {
-      setServiceAlerts([]);
-      return;
-    }
     let cancelled = false;
     routesService.getServiceAlerts(p.lineId).then((result) => {
       if (!cancelled) setServiceAlerts(result.available ? result.alerts : []);

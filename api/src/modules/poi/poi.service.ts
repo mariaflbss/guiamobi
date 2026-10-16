@@ -43,7 +43,17 @@ const OSM_FILTERS: Record<PoiCategory, string> = {
   school: '["amenity"="school"]',
 };
 
+// A fila é serial (1 consulta/s + latência da Overpass). Durante uma viagem longa o
+// app gera consultas mais rápido do que a fila consegue atender; sem limite, o
+// atraso cresce sem parar e as requisições pendentes ocupam as conexões do app,
+// travando a busca seguinte. Acima do limite, falha rápido: o app trata o POI como
+// opcional e tenta de novo na próxima célula.
+const MAX_PENDING = 3;
+let pending = 0;
+
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  if (pending >= MAX_PENDING) return Promise.reject(new Error('fila de consultas cheia'));
+  pending += 1;
   const run = queue.then(async () => {
     const wait = lastRequestAt + MIN_INTERVAL_MS - Date.now();
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
@@ -51,7 +61,7 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
     return task();
   });
   queue = run.catch(() => undefined);
-  return run;
+  return run.finally(() => { pending -= 1; });
 }
 
 interface OverpassElement {
@@ -96,7 +106,11 @@ export const poiService = {
     const query = buildOverpassQuery(lat, lng, radius, categories);
     const contact = env.GEOCODING_CONTACT || 'contato-nao-configurado';
 
+    const requestStartedAt = Date.now();
+    console.info(`[POI] iniciando consulta ${key}.`);
+    const queueStartedAt = Date.now();
     const elements = await enqueue(async () => {
+      console.info(`[POI] ${key} entrou na execução após ${Date.now() - queueStartedAt}ms.`);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
@@ -142,6 +156,7 @@ export const poiService = {
       if (oldest !== undefined) cache.delete(oldest);
     }
     cache.set(key, { expiresAt: Date.now() + CACHE_TTL_MS, items });
+    console.info(`[POI] consulta ${key} concluída em ${Date.now() - requestStartedAt}ms (${items.length} item(ns)).`);
 
     return items;
   },

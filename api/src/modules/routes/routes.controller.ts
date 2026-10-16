@@ -11,8 +11,11 @@ const lineIdParamsSchema = z.object({ lineId: z.string().min(1) });
 
 export const routesController = {
   async search(request: FastifyRequest, reply: FastifyReply) {
+    const startedAt = Date.now();
     const query = searchRoutesQuerySchema.parse(request.query);
+    console.info(`[Routes] busca iniciada: ${query.originLat},${query.originLng} -> ${query.destinationLat},${query.destinationLng}`);
     const options = await routesService.searchRoutes(query);
+    console.info(`[Routes] busca concluída em ${Date.now() - startedAt}ms (${options.length} opção(ões)).`);
     return reply.status(200).send({ options });
   },
 
@@ -79,12 +82,6 @@ export const routesController = {
    */
   async serviceAlerts(request: FastifyRequest, reply: FastifyReply) {
     const { lineId } = lineIdParamsSchema.parse(request.params);
-    // Opções calculadas pela Google usam IDs virtuais e não existem no catálogo local.
-    // Não inventamos alerta: a ausência de dado operacional da Google significa sem alerta disponível.
-    if (lineId.startsWith('google:')) {
-      return reply.status(200).send({ available: false, alerts: [] });
-    }
-
     const line = await prisma.transitLine.findUnique({ where: { id: lineId }, select: { gtfsRouteId: true, code: true } });
     if (!line) throw new AppError('Linha não encontrada.', 404);
 

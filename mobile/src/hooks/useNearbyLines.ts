@@ -3,7 +3,7 @@ import { routesService } from '../services/api/routesService';
 import { NearbyLineItem } from '../types/routes';
 import { Coordinates } from '../types/location';
 
-export function useNearbyLines(center: Coordinates | null | undefined) {
+export function useNearbyLines(center: Coordinates | null | undefined, enabled = true) {
   const [items, setItems] = useState<NearbyLineItem[]>([]);
   // A consulta é usada apenas para detectar linhas muito próximas (raio de 150 m).
   // Não precisa acompanhar cada atualização do GPS; agrupar em células de ~110 m
@@ -13,13 +13,14 @@ export function useNearbyLines(center: Coordinates | null | undefined) {
     : null;
 
   useEffect(() => {
-    if (!center || !key) { setItems([]); return; }
+    if (!enabled || !center || !key) { setItems([]); return; }
     let cancelled = false;
-    routesService.getNearbyLines(center, 150)
+    const controller = new AbortController();
+    routesService.getNearbyLines(center, 150, controller.signal)
       .then((result) => { if (!cancelled) setItems(result); })
       .catch(() => { if (!cancelled) setItems([]); });
-    return () => { cancelled = true; };
-  }, [key]);
+    return () => { cancelled = true; controller.abort(); };
+  }, [key, enabled]);
 
   return items;
 }

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { env } from '../../config/env';
 
 const requestSchema = z.object({
-  text: z.string().trim().min(1).max(700),
+  text: z.string().trim().min(1).max(2000),
   language: z.enum(['pt', 'en', 'es']).default('pt'),
 }).strict();
 

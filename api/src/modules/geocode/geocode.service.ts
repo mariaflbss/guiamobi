@@ -78,7 +78,16 @@ function checkUserLimit(userId: string) {
 }
 
 // Executa as chamadas ao Nominatim uma de cada vez, respeitando o intervalo mínimo
-function enqueue<T>(task: () => Promise<T>): Promise<T> {
+// Busca de endereço (ação do usuário) e geocodificação reversa (segundo plano da viagem)
+// dividem a mesma fila serial. A reversa tem limite menor para nunca fazer uma nova
+// busca esperar atrás de um acúmulo de consultas da viagem anterior.
+const MAX_PENDING_SEARCH = 6;
+const MAX_PENDING_REVERSE = 2;
+let pending = 0;
+
+function enqueue<T>(task: () => Promise<T>, maxPending = MAX_PENDING_SEARCH): Promise<T> {
+  if (pending >= maxPending) return Promise.reject(new Error('fila de consultas cheia'));
+  pending += 1;
   const run = queue.then(async () => {
     const wait = lastRequestAt + MIN_INTERVAL_MS - Date.now();
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
@@ -86,7 +95,7 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
     return task();
   });
   queue = run.catch(() => undefined);
-  return run;
+  return run.finally(() => { pending -= 1; });
 }
 
 function toPlace(item: NominatimItem): PlaceResult {
@@ -133,8 +142,11 @@ export const geocodeService = {
       const contact = env.GEOCODING_CONTACT || 'contato-nao-configurado';
       const userAgent = `GuiaMobiAcessivel/1.0 (${contact})`;
       const startedAt = Date.now();
+      console.info(`[Geocode] iniciando busca '${key}'.`);
 
+      const queueStartedAt = Date.now();
       const items = await enqueue(async () => {
+        console.info(`[Geocode] '${key}' entrou na execução após ${Date.now() - queueStartedAt}ms.`);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
@@ -214,7 +226,7 @@ export const geocodeService = {
       } finally {
         clearTimeout(timer);
       }
-    }).catch((error) => {
+    }, MAX_PENDING_REVERSE).catch((error) => {
       console.error('Falha na geocodificação reversa:', error);
       throw new AppError('O serviço de endereços está indisponível agora. Tente novamente em instantes.', 502);
     });

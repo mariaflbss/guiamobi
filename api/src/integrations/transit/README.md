@@ -194,7 +194,7 @@ Para a validação local da US06, `DevFixtureProvider` usa um subconjunto de lin
 
 Os nomes, vias/locais do itinerário e os horários selecionados vêm dos PDFs oficiais. As coordenadas de alguns pontos e os minutos entre pontos são aproximações para que a busca geográfica possa ser exercitada localmente. Portanto, **não devem ser apresentados como GTFS oficial ou previsão real de viagem**.
 
-O objetivo é testar a UI e o contrato da API sem depender de Google Routes, cartão/billing ou de uma API municipal. Para usar a fixture, mantenha `TRANSIT_PROVIDER=dev` (ou `auto` sem Google/OTP/GTFS configurados) e execute o seed.
+O objetivo é testar a UI e o contrato da API sem depender de uma API externa de cálculo de rotas, cartão/billing ou de uma API municipal. Para usar a fixture, mantenha `TRANSIT_PROVIDER=dev` (ou `auto` sem OTP/GTFS configurados) e execute o seed.
 
 Para testar R39/alternativas da US06, `MOCK_TRANSIT_SCENARIO` pode ser:
 

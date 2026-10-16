@@ -1,6 +1,6 @@
 # Mock da US06 — GuiaMobi Acessível
 
-Este ambiente usa `DevFixtureProvider` para validar a US06 sem Google Routes.
+Este ambiente usa `DevFixtureProvider` para validar a US06 sem serviço externo de roteamento.
 
 ## Dados usados
 

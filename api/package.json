@@ -14,7 +14,9 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
     "prisma:studio": "prisma studio",
-    "import:gtfs": "tsx src/integrations/gtfs/gtfsImporter.ts"
+    "import:gtfs": "tsx src/integrations/gtfs/gtfsImporter.ts",
+    "import:gtfs:official": "tsx src/integrations/gtfs/gtfsImporter.ts",
+    "validate:gtfs": "tsx src/integrations/gtfs/validateGtfs.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",

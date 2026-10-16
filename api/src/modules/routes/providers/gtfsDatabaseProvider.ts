@@ -11,22 +11,34 @@ import {
 } from './types';
 
 const MAX_WALK_DISTANCE_METERS = 1200;
+const MAX_NEARBY_STOPS = 8;
+const MAX_ROUTE_OPTIONS = 5;
+const SHAPE_CACHE_MAX = 24;
+
+interface ServiceCalendar {
+  monday: boolean;
+  tuesday: boolean;
+  wednesday: boolean;
+  thursday: boolean;
+  friday: boolean;
+  saturday: boolean;
+  sunday: boolean;
+  startDate: Date;
+  endDate: Date;
+  exceptions: { date: Date; exceptionType: number }[];
+}
 
 /**
- * Provider "de verdade": lê exclusivamente dados com dataSource =
- * OFFICIAL_GTFS, importados por api/src/integrations/gtfs/gtfsImporter.ts a
- * partir de um feed GTFS oficial completo (agency, routes, stops, trips,
- * stop_times, calendar, calendar_dates, shapes).
+ * Provider oficial do GuiaMobi.
  *
- * Sem nenhum limite artificial: processa TODAS as linhas/paradas/viagens que
- * estiverem marcadas OFFICIAL_GTFS no banco, sejam 3 ou 3000. A busca é por
- * VIAGEM (trip) real, não por uma sequência fixa por linha como na fixture -
- * isso é o que permite considerar corretamente sentidos diferentes, viagens
- * que não circulam num certo dia (calendar/calendar_dates) e horários reais
- * de stop_times.
+ * O identificador interno da linha é o TransitLine.id, que é relacionado
+ * univocamente ao routes.txt por gtfsRouteId. route_short_name é apenas o
+ * código exibido ao usuário e pode se repetir no feed.
  */
 export class GtfsDatabaseProvider implements TransitProvider {
   readonly name = 'official-gtfs' as const;
+
+  private readonly shapeCache = new Map<string, { latitude: number; longitude: number }[]>();
 
   async getStatus(): Promise<TransitStatus> {
     const [linesCount, linesWithTripsCount, stopsCount, latest] = await Promise.all([
@@ -46,245 +58,85 @@ export class GtfsDatabaseProvider implements TransitProvider {
       linesWithRouteDataCount: linesWithTripsCount,
       source: linesCount > 0 ? 'gtfs-import' : null,
       stopsCount,
-      importedAt: latest ? latest.createdAt.toISOString() : null,
+      importedAt: latest?.createdAt.toISOString() ?? null,
       provider: 'official-gtfs',
     };
   }
 
-  /**
-   * Busca paradas OFFICIAL_GTFS num raio, com um filtro barato de bounding
-   * box no banco antes do cálculo preciso por Haversine em memória - é isso
-   * que permite escalar para uma rede com milhares de paradas sem varrer a
-   * tabela inteira a cada busca.
-   */
   private async nearbyStops(latitude: number, longitude: number, radiusMeters: number) {
     const { deltaLat, deltaLon } = boundingBoxDeltas(latitude, radiusMeters);
-
     const candidates = await prisma.transitStop.findMany({
       where: {
         gtfsStopId: { not: null },
         latitude: { gte: latitude - deltaLat, lte: latitude + deltaLat },
         longitude: { gte: longitude - deltaLon, lte: longitude + deltaLon },
       },
+      select: { id: true, name: true, latitude: true, longitude: true, stopCode: true },
     });
 
     return candidates
       .map((stop) => ({ stop, distanceMeters: haversineDistanceMeters(latitude, longitude, stop.latitude, stop.longitude) }))
-      .filter((c) => c.distanceMeters <= radiusMeters)
-      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+      .filter((candidate) => candidate.distanceMeters <= radiusMeters)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters)
+      .slice(0, MAX_NEARBY_STOPS);
   }
 
   async searchRoutes(query: SearchRoutesQueryInput): Promise<RouteOption[]> {
-    const [originCandidates, destCandidates] = await Promise.all([
+    const [originCandidates, destinationCandidates] = await Promise.all([
       this.nearbyStops(query.originLat, query.originLng, MAX_WALK_DISTANCE_METERS),
       this.nearbyStops(query.destinationLat, query.destinationLng, MAX_WALK_DISTANCE_METERS),
     ]);
 
-    if (originCandidates.length === 0 || destCandidates.length === 0) return [];
-
-    const originStopIds = originCandidates.map((c) => c.stop.id);
-    const destStopIds = destCandidates.map((c) => c.stop.id);
-    const originDistanceByStopId = new Map<string, number>(originCandidates.map((c) => [c.stop.id, c.distanceMeters] as [string, number]));
-    const destDistanceByStopId = new Map<string, number>(destCandidates.map((c) => [c.stop.id, c.distanceMeters] as [string, number]));
-
-    // Viagens que passam por pelo menos uma parada candidata de origem
-    const originStopTimes = await prisma.transitStopTime.findMany({
-      where: { stopId: { in: originStopIds }, trip: { line: { dataSource: 'OFFICIAL_GTFS' } } },
-      include: {
-        stop: true,
-        trip: {
-          include: {
-            line: { include: { status: true } },
-            service: { include: { exceptions: true } },
-            stopTimes: { where: { stopId: { in: destStopIds } }, include: { stop: true } },
-          },
-        },
-      },
-    });
-
-    const today = new Date();
-    const bestByLine = new Map<string, RouteOption>();
-
-    for (const originStopTime of originStopTimes) {
-      const trip = originStopTime.trip;
-      if (!isServiceValidOn(trip.service, today)) continue;
-      if (trip.line.status?.status === 'UNAVAILABLE') continue;
-
-      // Precisa de uma parada de destino candidata NA MESMA VIAGEM, depois da origem
-      const alightingStopTime = trip.stopTimes
-        .filter((st) => st.sequence > originStopTime.sequence)
-        .sort((a, b) => a.sequence - b.sequence)[0];
-      if (!alightingStopTime) continue;
-
-      const scheduledMinutes = timeStringToMinutes(alightingStopTime.arrivalTime) - timeStringToMinutes(originStopTime.departureTime);
-      if (scheduledMinutes <= 0 || scheduledMinutes > 240) continue; // descarta viradas de dia / dado inconsistente
-
-      const boardingDistance = originDistanceByStopId.get(originStopTime.stopId) ?? 0;
-      const alightingDistance = destDistanceByStopId.get(alightingStopTime.stopId) ?? 0;
-      const walkMinutes = estimateWalkMinutes(boardingDistance + alightingDistance);
-      const delayMinutes = trip.line.status?.status === 'DELAYED' ? trip.line.status.delayMinutes ?? 0 : 0;
-      const durationMinutes = Math.max(1, Math.round(scheduledMinutes + walkMinutes + delayMinutes));
-
-      const existing = bestByLine.get(trip.lineId);
-      if (existing && existing.durationMinutes <= durationMinutes) continue;
-
-      bestByLine.set(trip.lineId, {
-        lineId: trip.lineId,
-        lineCode: trip.line.code,
-        lineName: trip.line.name,
-        boardingStop: {
-          id: originStopTime.stop.id,
-          name: originStopTime.stop.name,
-          distanceMeters: Math.round(boardingDistance),
-          latitude: originStopTime.stop.latitude,
-          longitude: originStopTime.stop.longitude,
-        },
-        alightingStop: {
-          id: alightingStopTime.stop.id,
-          name: alightingStopTime.stop.name,
-          distanceMeters: Math.round(alightingDistance),
-          latitude: alightingStopTime.stop.latitude,
-          longitude: alightingStopTime.stop.longitude,
-        },
-        stopsCount: alightingStopTime.sequence - originStopTime.sequence,
-        durationMinutes,
-        // Horário REAL de stop_times.txt - não uma tabela separada de "próximo horário estimado".
-        nextDeparture: originStopTime.departureTime.slice(0, 5),
-        ...(delayMinutes > 0 ? { delayMinutes } : {}),
-        shape: await this.getTripShape(trip.gtfsShapeId),
-      });
-    }
-
-    return Array.from(bestByLine.values()).sort((a, b) => a.durationMinutes - b.durationMinutes);
-  }
-
-  private shapeCache = new Map<string, { latitude: number; longitude: number }[]>();
-
-  private async getTripShape(gtfsShapeId: string | null): Promise<{ latitude: number; longitude: number }[] | undefined> {
-    if (!gtfsShapeId) return undefined;
-    if (this.shapeCache.has(gtfsShapeId)) return this.shapeCache.get(gtfsShapeId);
-
-    const points = await prisma.transitShape.findMany({
-      where: { gtfsShapeId },
-      orderBy: { sequence: 'asc' },
-      select: { latitude: true, longitude: true },
-    });
-
-    if (points.length === 0) return undefined;
-    this.shapeCache.set(gtfsShapeId, points);
-    return points;
-  }
-
-  /**
-   * Recupera o itinerário real do GTFS para uma opção calculada pela Google.
-   * A Routes API informa embarque/desembarque e stopCount, mas não entrega
-   * necessariamente cada parada intermediária. Quando o feed oficial local
-   * possui a mesma linha, usamos stop_times.txt para preencher a sequência.
-   */
-  private readonly tripSegmentCache = new Map<string, {
-    expiresAt: number;
-    result: { stops: LineDetail['stops']; shape?: { latitude: number; longitude: number }[] } | null;
-  }>();
-  private readonly tripSegmentInFlight = new Map<string, Promise<{
-    stops: LineDetail['stops'];
-    shape?: { latitude: number; longitude: number }[];
-  } | null>>();
-  private static readonly TRIP_SEGMENT_CACHE_TTL_MS = 60_000;
-
-  /**
-   * Recupera somente as viagens que realmente passam por paradas próximas
-   * ao embarque/desembarque. A implementação anterior carregava TODAS as
-   * viagens da linha + todos os stop_times de cada viagem, o que ficava caro
-   * para linhas com muitos trips.
-   */
-  async getTripSegmentByLineCode(
-    lineCode: string,
-    boarding: { latitude: number; longitude: number },
-    alighting: { latitude: number; longitude: number },
-  ): Promise<{ stops: LineDetail['stops']; shape?: { latitude: number; longitude: number }[] } | null> {
-    const cacheKey = [
-      lineCode.trim().toUpperCase(),
-      boarding.latitude.toFixed(4),
-      boarding.longitude.toFixed(4),
-      alighting.latitude.toFixed(4),
-      alighting.longitude.toFixed(4),
-    ].join(':');
-
-    const cached = this.tripSegmentCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) return cached.result;
-
-    const inFlight = this.tripSegmentInFlight.get(cacheKey);
-    if (inFlight) return inFlight;
-
-    const request = this.computeTripSegment(lineCode, boarding, alighting, cacheKey);
-    this.tripSegmentInFlight.set(cacheKey, request);
-    try {
-      return await request;
-    } finally {
-      this.tripSegmentInFlight.delete(cacheKey);
-    }
-  }
-
-  private async computeTripSegment(
-    lineCode: string,
-    boarding: { latitude: number; longitude: number },
-    alighting: { latitude: number; longitude: number },
-    cacheKey: string,
-  ): Promise<{ stops: LineDetail['stops']; shape?: { latitude: number; longitude: number }[] } | null> {
-    const startedAt = Date.now();
-
-    const line = await prisma.transitLine.findFirst({
-      where: { dataSource: 'OFFICIAL_GTFS', code: lineCode },
-      select: { id: true },
-    });
-    if (!line) {
-      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
-      return null;
-    }
-
-    const [originCandidates, destinationCandidates] = await Promise.all([
-      this.nearbyStops(boarding.latitude, boarding.longitude, MAX_WALK_DISTANCE_METERS),
-      this.nearbyStops(alighting.latitude, alighting.longitude, MAX_WALK_DISTANCE_METERS),
-    ]);
-
-    if (originCandidates.length === 0 || destinationCandidates.length === 0) {
-      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
-      return null;
-    }
+    if (originCandidates.length === 0 || destinationCandidates.length === 0) return [];
 
     const originStopIds = originCandidates.map((candidate) => candidate.stop.id);
     const destinationStopIds = destinationCandidates.map((candidate) => candidate.stop.id);
     const originDistanceByStopId = new Map(originCandidates.map((candidate) => [candidate.stop.id, candidate.distanceMeters]));
     const destinationDistanceByStopId = new Map(destinationCandidates.map((candidate) => [candidate.stop.id, candidate.distanceMeters]));
 
+    const now = new Date();
+    const nowMinutes = getCurrentMinutesSaoPaulo(now);
+    const currentGtfsTime = getCurrentGtfsTimeSaoPaulo(now);
+    const validServiceIds = await getValidServiceIdsOn(now);
+
+    if (validServiceIds.length === 0) return [];
+
+    // O filtro de calendário e de horário acontece no PostgreSQL, antes dos
+    // registros saírem do banco. Isso evita carregar milhares de stop_times
+    // já passados ou pertencentes a serviços que não operam hoje.
     const originStopTimes = await prisma.transitStopTime.findMany({
       where: {
         stopId: { in: originStopIds },
-        trip: { lineId: line.id },
+        departureTime: { gte: currentGtfsTime },
+        trip: {
+          serviceId: { in: validServiceIds },
+          line: { dataSource: 'OFFICIAL_GTFS' },
+        },
       },
       select: {
         tripId: true,
         stopId: true,
         sequence: true,
         departureTime: true,
-        stop: {
-          select: { id: true, name: true, latitude: true, longitude: true, stopCode: true },
-        },
+        stop: { select: { id: true, name: true, latitude: true, longitude: true } },
         trip: {
           select: {
+            lineId: true,
             gtfsShapeId: true,
-            service: { include: { exceptions: true } },
+            line: { select: { id: true, code: true, name: true, status: true } },
           },
         },
       },
+      orderBy: { departureTime: 'asc' },
     });
 
-    if (originStopTimes.length === 0) {
-      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
-      return null;
-    }
+    const futureOriginStopTimes = originStopTimes.filter((origin) =>
+      timeStringToMinutes(origin.departureTime) >= nowMinutes
+    );
 
-    const tripIds = Array.from(new Set(originStopTimes.map((stopTime) => stopTime.tripId)));
+    if (futureOriginStopTimes.length === 0) return [];
+
+    const tripIds = Array.from(new Set(futureOriginStopTimes.map((item) => item.tripId)));
     const destinationStopTimes = await prisma.transitStopTime.findMany({
       where: {
         tripId: { in: tripIds },
@@ -296,80 +148,120 @@ export class GtfsDatabaseProvider implements TransitProvider {
         sequence: true,
         arrivalTime: true,
         departureTime: true,
-        stop: {
-          select: { id: true, name: true, latitude: true, longitude: true, stopCode: true },
-        },
+        stop: { select: { id: true, name: true, latitude: true, longitude: true } },
       },
     });
 
     const destinationsByTrip = new Map<string, typeof destinationStopTimes>();
-    for (const stopTime of destinationStopTimes) {
-      const list = destinationsByTrip.get(stopTime.tripId);
-      if (list) list.push(stopTime);
-      else destinationsByTrip.set(stopTime.tripId, [stopTime]);
+    for (const destination of destinationStopTimes) {
+      const list = destinationsByTrip.get(destination.tripId);
+      if (list) list.push(destination);
+      else destinationsByTrip.set(destination.tripId, [destination]);
     }
 
-    let best: {
+    type Candidate = {
+      option: RouteOption;
       tripId: string;
-      gtfsShapeId: string | null;
-      origin: (typeof originStopTimes)[number];
-      destination: (typeof destinationStopTimes)[number];
-      score: number;
-    } | null = null;
+      shapeId: string | null;
+      arrivalMinutes: number;
+      departureMinutes: number;
+    };
 
-    const today = new Date();
+    // Uma opção por gtfs route_id. Isso evita assumir que route_short_name
+    // seja único (o feed oficial possui pelo menos um código repetido).
+    const bestByRouteId = new Map<string, Candidate>();
 
-    for (const origin of originStopTimes) {
-      if (!isServiceValidOn(origin.trip.service, today)) continue;
+    for (const origin of futureOriginStopTimes) {
+      const line = origin.trip.line;
+      if (line.status?.status === 'UNAVAILABLE') continue;
 
-      const candidates = (destinationsByTrip.get(origin.tripId) ?? [])
-        .filter((destination) => destination.sequence > origin.sequence);
-      if (candidates.length === 0) continue;
+      const destinations = (destinationsByTrip.get(origin.tripId) ?? [])
+        .filter((destination) => destination.sequence > origin.sequence)
+        .sort((a, b) => a.sequence - b.sequence);
+      if (destinations.length === 0) continue;
 
-      const destination = candidates.reduce((closest, current) => {
-        const currentDistance = destinationDistanceByStopId.get(current.stopId) ?? Infinity;
-        const closestDistance = destinationDistanceByStopId.get(closest.stopId) ?? Infinity;
-        return currentDistance < closestDistance ? current : closest;
-      });
+      const destination = destinations[0];
+      const departureMinutes = timeStringToMinutes(origin.departureTime);
+      const arrivalMinutes = timeStringToMinutes(destination.arrivalTime);
+      const scheduledMinutes = arrivalMinutes - departureMinutes;
+      if (scheduledMinutes <= 0 || scheduledMinutes > 240) continue;
 
-      const startDistance = originDistanceByStopId.get(origin.stopId) ?? Infinity;
-      const endDistance = destinationDistanceByStopId.get(destination.stopId) ?? Infinity;
-      const score = startDistance + endDistance;
+      const boardingDistance = originDistanceByStopId.get(origin.stopId) ?? Infinity;
+      const alightingDistance = destinationDistanceByStopId.get(destination.stopId) ?? Infinity;
+      const walkMinutes = estimateWalkMinutes(boardingDistance + alightingDistance);
+      const waitMinutes = Math.max(0, departureMinutes - nowMinutes);
+      const delayMinutes = line.status?.status === 'DELAYED' ? line.status.delayMinutes ?? 0 : 0;
+      const durationMinutes = Math.max(1, Math.round(waitMinutes + scheduledMinutes + walkMinutes + delayMinutes));
 
-      if (!best || score < best.score) {
-        best = { tripId: origin.tripId, gtfsShapeId: origin.trip.gtfsShapeId, origin, destination, score };
+      const option: RouteOption = {
+        lineId: line.id,
+        lineCode: line.code,
+        lineName: line.name,
+        boardingStop: {
+          id: origin.stop.id,
+          name: origin.stop.name,
+          distanceMeters: Math.round(boardingDistance),
+          latitude: origin.stop.latitude,
+          longitude: origin.stop.longitude,
+        },
+        alightingStop: {
+          id: destination.stop.id,
+          name: destination.stop.name,
+          distanceMeters: Math.round(alightingDistance),
+          latitude: destination.stop.latitude,
+          longitude: destination.stop.longitude,
+        },
+        stopsCount: destination.sequence - origin.sequence,
+        durationMinutes,
+        nextDeparture: origin.departureTime.slice(0, 5),
+        ...(delayMinutes > 0 ? { delayMinutes } : {}),
+      };
+
+      const candidate: Candidate = {
+        option,
+        tripId: origin.tripId,
+        shapeId: origin.trip.gtfsShapeId,
+        arrivalMinutes,
+        departureMinutes,
+      };
+      const existing = bestByRouteId.get(line.id);
+      if (!existing || candidate.arrivalMinutes < existing.arrivalMinutes ||
+          (candidate.arrivalMinutes === existing.arrivalMinutes && candidate.departureMinutes < existing.departureMinutes)) {
+        bestByRouteId.set(line.id, candidate);
       }
     }
 
-    if (!best) {
-      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
-      return null;
-    }
+    const best = Array.from(bestByRouteId.values())
+      .sort((a, b) => a.option.durationMinutes - b.option.durationMinutes)
+      .slice(0, MAX_ROUTE_OPTIONS);
 
-    const segmentStopTimes = await prisma.transitStopTime.findMany({
-      where: {
-        tripId: best.tripId,
-        sequence: { gte: best.origin.sequence, lte: best.destination.sequence },
-      },
+    const enriched = await Promise.all(best.map(async (candidate) => {
+      const [shape, stops] = await Promise.all([
+        this.getTripShape(candidate.shapeId),
+        this.getTripStops(candidate.tripId),
+      ]);
+      return { ...candidate.option, shape, stops };
+    }));
+
+    return enriched;
+  }
+
+  private async getTripStops(tripId: string): Promise<LineDetail['stops']> {
+    const stopTimes = await prisma.transitStopTime.findMany({
+      where: { tripId },
       orderBy: { sequence: 'asc' },
       select: {
         sequence: true,
         departureTime: true,
         arrivalTime: true,
-        stop: {
-          select: { id: true, name: true, latitude: true, longitude: true, stopCode: true },
-        },
+        stop: { select: { id: true, name: true, latitude: true, longitude: true, stopCode: true } },
       },
     });
 
-    if (segmentStopTimes.length < 2) {
-      this.tripSegmentCache.set(cacheKey, { expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS, result: null });
-      return null;
-    }
-
-    const firstMinutes = timeStringToMinutes(segmentStopTimes[0].departureTime || segmentStopTimes[0].arrivalTime);
-    const stops = segmentStopTimes.map((stopTime, index) => ({
-      sequence: index + 1,
+    if (stopTimes.length === 0) return [];
+    const firstMinutes = timeStringToMinutes(stopTimes[0].departureTime || stopTimes[0].arrivalTime);
+    return stopTimes.map((stopTime) => ({
+      sequence: stopTime.sequence,
       minutesFromStart: Math.max(0, timeStringToMinutes(stopTime.departureTime || stopTime.arrivalTime) - firstMinutes),
       stop: {
         id: stopTime.stop.id,
@@ -379,15 +271,26 @@ export class GtfsDatabaseProvider implements TransitProvider {
         stopCode: stopTime.stop.stopCode,
       },
     }));
+  }
 
-    const result = { stops, shape: await this.getTripShape(best.gtfsShapeId) };
-    this.tripSegmentCache.set(cacheKey, {
-      expiresAt: Date.now() + GtfsDatabaseProvider.TRIP_SEGMENT_CACHE_TTL_MS,
-      result,
+  private async getTripShape(gtfsShapeId: string | null): Promise<{ latitude: number; longitude: number }[] | undefined> {
+    if (!gtfsShapeId) return undefined;
+    const cached = this.shapeCache.get(gtfsShapeId);
+    if (cached) return cached;
+
+    const points = await prisma.transitShape.findMany({
+      where: { gtfsShapeId },
+      orderBy: { sequence: 'asc' },
+      select: { latitude: true, longitude: true },
     });
+    if (points.length === 0) return undefined;
 
-    console.info(`[GTFS] enriquecimento ${lineCode} concluído em ${Date.now() - startedAt}ms (${originStopTimes.length} embarques candidatos, ${tripIds.length} trips, ${segmentStopTimes.length} paradas).`);
-    return result;
+    if (this.shapeCache.size >= SHAPE_CACHE_MAX) {
+      const oldest = this.shapeCache.keys().next().value;
+      if (oldest) this.shapeCache.delete(oldest);
+    }
+    this.shapeCache.set(gtfsShapeId, points);
+    return points;
   }
 
   async searchLines(term: string): Promise<LineSearchResult[]> {
@@ -400,8 +303,8 @@ export class GtfsDatabaseProvider implements TransitProvider {
         ],
       },
       include: { status: true, _count: { select: { trips: true } } },
-      orderBy: { code: 'asc' },
-      take: 50, // limite de PAGINAÇÃO da resposta, não da rede carregada
+      orderBy: [{ code: 'asc' }, { name: 'asc' }],
+      take: 50,
     });
 
     return lines.map((line) => ({
@@ -419,138 +322,191 @@ export class GtfsDatabaseProvider implements TransitProvider {
     const candidates = await this.nearbyStops(latitude, longitude, radiusMeters);
     if (candidates.length === 0) return [];
 
-    const distanceByStopId = new Map<string, number>(candidates.map((c) => [c.stop.id, c.distanceMeters] as [string, number]));
+    const distanceByStopId = new Map(candidates.map((candidate) => [candidate.stop.id, candidate.distanceMeters]));
+    const now = new Date();
+    const nowMinutes = getCurrentMinutesSaoPaulo(now);
+
+    const currentGtfsTime = getCurrentGtfsTimeSaoPaulo(now);
+    const validServiceIds = await getValidServiceIdsOn(now);
+    if (validServiceIds.length === 0) return [];
+
     const stopTimes = await prisma.transitStopTime.findMany({
-      where: { stopId: { in: candidates.map((c) => c.stop.id) }, trip: { line: { dataSource: 'OFFICIAL_GTFS' } } },
-      include: {
-        stop: true,
-        trip: { include: { line: { include: { status: true } }, service: { include: { exceptions: true } } } },
+      where: {
+        stopId: { in: candidates.map((candidate) => candidate.stop.id) },
+        departureTime: { gte: currentGtfsTime },
+        trip: {
+          serviceId: { in: validServiceIds },
+          line: { dataSource: 'OFFICIAL_GTFS' },
+        },
       },
+      select: {
+        stopId: true,
+        departureTime: true,
+        trip: {
+          select: {
+            line: { select: { id: true, code: true, name: true, status: true } },
+          },
+        },
+        stop: { select: { id: true, name: true, latitude: true, longitude: true } },
+      },
+      orderBy: { departureTime: 'asc' },
     });
 
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
-    const byLine = new Map<string, NearbyLine & { _nextMinutes: number | null }>();
+    const byLine = new Map<string, NearbyLine & { nextMinutes: number | null }>();
+    for (const stopTime of stopTimes) {
+      const departureMinutes = timeStringToMinutes(stopTime.departureTime);
+      if (departureMinutes < nowMinutes) continue;
+      if (stopTime.trip.line.status?.status === 'UNAVAILABLE') continue;
 
-    for (const st of stopTimes) {
-      const line = st.trip.line;
-      if (line.status?.status === 'UNAVAILABLE') continue;
-      if (!isServiceValidOn(st.trip.service, now)) continue;
+      const distance = distanceByStopId.get(stopTime.stopId) ?? Infinity;
+      const existing = byLine.get(stopTime.trip.line.id);
+      const nextMinutes = existing?.nextMinutes ?? null;
+      const isEarlier = nextMinutes === null || departureMinutes < nextMinutes;
 
-      const distance = distanceByStopId.get(st.stopId) ?? 0;
-      const departureMinutes = timeStringToMinutes(st.departureTime);
-      const existing = byLine.get(line.id);
+      if (!existing) {
+        byLine.set(stopTime.trip.line.id, {
+          lineId: stopTime.trip.line.id,
+          lineCode: stopTime.trip.line.code,
+          lineName: stopTime.trip.line.name,
+          stop: {
+            id: stopTime.stop.id,
+            name: stopTime.stop.name,
+            distanceMeters: Math.round(distance),
+            latitude: stopTime.stop.latitude,
+            longitude: stopTime.stop.longitude,
+          },
+          nextDeparture: stopTime.departureTime.slice(0, 5),
+          nextMinutes: departureMinutes,
+        });
+        continue;
+      }
 
-      const entry = existing ?? {
-        lineId: line.id,
-        lineCode: line.code,
-        lineName: line.name,
-        stop: {
-          id: st.stop.id,
-          name: st.stop.name,
+      if (distance < existing.stop.distanceMeters) {
+        existing.stop = {
+          id: stopTime.stop.id,
+          name: stopTime.stop.name,
           distanceMeters: Math.round(distance),
-          latitude: st.stop.latitude,
-          longitude: st.stop.longitude,
-        },
-        nextDeparture: null,
-        _nextMinutes: null,
-      };
-
-      // Mantém a parada mais próxima do usuário para esta linha
-      if (existing && distance < existing.stop.distanceMeters) {
-        entry.stop = {
-          id: st.stop.id,
-          name: st.stop.name,
-          distanceMeters: Math.round(distance),
-          latitude: st.stop.latitude,
-          longitude: st.stop.longitude,
+          latitude: stopTime.stop.latitude,
+          longitude: stopTime.stop.longitude,
         };
       }
-
-      // Próxima partida real (>= agora) entre as viagens que rodam hoje
-      if (departureMinutes >= nowMinutes && (entry._nextMinutes === null || departureMinutes < entry._nextMinutes)) {
-        entry._nextMinutes = departureMinutes;
-        entry.nextDeparture = st.departureTime.slice(0, 5);
+      if (isEarlier) {
+        existing.nextMinutes = departureMinutes;
+        existing.nextDeparture = stopTime.departureTime.slice(0, 5);
       }
-      byLine.set(line.id, entry);
     }
 
     return Array.from(byLine.values())
-      .map(({ _nextMinutes, ...rest }) => rest)
+      .map(({ nextMinutes: _nextMinutes, ...line }) => line)
       .sort((a, b) => a.stop.distanceMeters - b.stop.distanceMeters);
   }
 
   async getLineDetail(lineId: string): Promise<LineDetail | null> {
-    const line = await prisma.transitLine.findUnique({
-      where: { id: lineId },
+    const line = await prisma.transitLine.findFirst({
+      where: { id: lineId, dataSource: 'OFFICIAL_GTFS' },
       include: { status: true },
     });
-    if (!line || line.dataSource !== 'OFFICIAL_GTFS') return null;
+    if (!line) return null;
 
-    // Usa a viagem com mais paradas como representante do trajeto completo
-    // da linha (aproximação razoável quando há variantes de trajeto/sentido).
-    const trips = await prisma.transitTrip.findMany({
+    // Uma única viagem representativa evita carregar todas as viagens da linha.
+    // A busca de rota usa a trip exata selecionada para a viagem do usuário.
+    const representativeTrip = await prisma.transitTrip.findFirst({
       where: { lineId },
-      include: { stopTimes: { include: { stop: true }, orderBy: { sequence: 'asc' } } },
+      orderBy: { id: 'asc' },
+      select: { id: true, gtfsShapeId: true },
     });
 
-    const representativeTrip = trips.sort((a, b) => b.stopTimes.length - a.stopTimes.length)[0];
-    const firstStopTimeMinutes = representativeTrip?.stopTimes[0]
-      ? timeStringToMinutes(representativeTrip.stopTimes[0].departureTime)
-      : 0;
+    const stops = representativeTrip ? await this.getTripStops(representativeTrip.id) : [];
 
     return {
       id: line.id,
       code: line.code,
       name: line.name,
-      stops: representativeTrip
-        ? representativeTrip.stopTimes.map((st) => ({
-            sequence: st.sequence,
-            // Real, calculado a partir do horário de partida de cada parada
-            // nesta viagem (stop_times.txt) - não é uma estimativa.
-            minutesFromStart: timeStringToMinutes(st.departureTime) - firstStopTimeMinutes,
-            stop: { id: st.stop.id, name: st.stop.name, latitude: st.stop.latitude, longitude: st.stop.longitude, stopCode: st.stop.stopCode },
-          }))
-        : [],
+      stops,
       shape: await this.getTripShape(representativeTrip?.gtfsShapeId ?? null),
       status: (line.status?.status ?? 'OPERATIONAL') as LineDetail['status'],
       delayMinutes: line.status?.status === 'DELAYED' ? line.status.delayMinutes ?? null : null,
       statusReason: line.status?.reason ?? null,
-      hasRouteData: trips.length > 0,
+      hasRouteData: Boolean(representativeTrip),
       officialSourceUrl: line.officialSourceUrl,
     };
   }
 }
 
-interface ServiceCalendar {
-  monday: boolean;
-  tuesday: boolean;
-  wednesday: boolean;
-  thursday: boolean;
-  friday: boolean;
-  saturday: boolean;
-  sunday: boolean;
-  startDate: Date;
-  endDate: Date;
-  exceptions: { date: Date; exceptionType: number }[];
+function getCurrentMinutesSaoPaulo(date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0);
+  return hour * 60 + minute;
 }
 
-/** GTFS calendar.txt + calendar_dates.txt: a viagem roda na data informada? */
-function isServiceValidOn(service: ServiceCalendar, date: Date): boolean {
-  const sameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-
-  const exception = service.exceptions.find((e) => sameDay(e.date, date));
-  if (exception) return exception.exceptionType === 1; // 1 = adicionado, 2 = removido
-
-  if (date < service.startDate || date > service.endDate) return false;
-
-  const weekdayFlags = [service.sunday, service.monday, service.tuesday, service.wednesday, service.thursday, service.friday, service.saturday];
-  return weekdayFlags[date.getDay()];
+function localDateKeySaoPaulo(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(date);
 }
 
-/** GTFS permite "25:30:00" para viagens após meia-noite - converte para minutos totais desde 00:00. */
+async function getValidServiceIdsOn(date: Date): Promise<string[]> {
+  const dateKey = localDateKeySaoPaulo(date);
+  const weekday = new Date(`${dateKey}T12:00:00-03:00`).getDay();
+  const weekdayWhere = [
+    { sunday: true },
+    { monday: true },
+    { tuesday: true },
+    { wednesday: true },
+    { thursday: true },
+    { friday: true },
+    { saturday: true },
+  ][weekday];
+
+  const dateStart = new Date(`${dateKey}T00:00:00-03:00`);
+  const dateEnd = new Date(`${dateKey}T23:59:59.999-03:00`);
+
+  const services = await prisma.transitService.findMany({
+    where: {
+      startDate: { lte: dateEnd },
+      endDate: { gte: dateStart },
+      ...weekdayWhere,
+    },
+    select: { id: true },
+  });
+
+  const baseIds = services.map((service) => service.id);
+  const exceptions = await prisma.transitCalendarException.findMany({
+    where: { date: { gte: dateStart, lte: dateEnd } },
+    select: { serviceId: true, exceptionType: true },
+  });
+
+  const removed = new Set(
+    exceptions.filter((item) => item.exceptionType === 2).map((item) => item.serviceId)
+  );
+  const activeSet = new Set(baseIds.filter((id) => !removed.has(id)));
+
+  // Também cobre service_id que existe apenas em calendar_dates.txt.
+  for (const exception of exceptions) {
+    if (exception.exceptionType === 1) activeSet.add(exception.serviceId);
+  }
+
+  return Array.from(activeSet);
+}
+
+function getCurrentGtfsTimeSaoPaulo(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0);
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+}
+
+/** GTFS permite horários como 25:30:00 após a meia-noite. */
 function timeStringToMinutes(time: string): number {
-  const [h, m] = time.split(':').map(Number);
-  return h * 60 + m;
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
 }
