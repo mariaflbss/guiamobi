@@ -160,7 +160,7 @@ export const geocodeService = {
           clearTimeout(timer);
         }
       }).catch((error) => {
-        console.error('Falha na busca de endereços:', error);
+        console.info('[Geocode] Busca opcional indisponível:', error instanceof Error ? error.message : error);
         throw new AppError('O serviço de busca de endereços está indisponível agora. Tente novamente em instantes.', 502);
       });
 
@@ -227,7 +227,7 @@ export const geocodeService = {
         clearTimeout(timer);
       }
     }, MAX_PENDING_REVERSE).catch((error) => {
-      console.error('Falha na geocodificação reversa:', error);
+      console.info('[Geocode] Reversa opcional indisponível:', error instanceof Error ? error.message : error);
       throw new AppError('O serviço de endereços está indisponível agora. Tente novamente em instantes.', 502);
     });
 

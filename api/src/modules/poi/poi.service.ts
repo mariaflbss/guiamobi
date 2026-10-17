@@ -131,7 +131,7 @@ export const poiService = {
         clearTimeout(timer);
       }
     }).catch((error) => {
-      console.error('Falha na consulta de pontos de referência:', error);
+      console.info('[POI] Consulta opcional indisponível:', error instanceof Error ? error.message : error);
       throw new AppError('O serviço de pontos de referência está indisponível agora. Tente novamente em instantes.', 502);
     });
 

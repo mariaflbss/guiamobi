@@ -71,6 +71,16 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshPromise;
 }
 
+function isExpectedOptionalRequest(path: string): boolean {
+  return path.startsWith('/poi/nearby') ||
+    path.startsWith('/geocode/reverse') ||
+    path.startsWith('/routes/nearby-lines');
+}
+
+function isExpectedCancellation(error: unknown, signal: AbortSignal | undefined, timedOut: boolean): boolean {
+  return Boolean(signal?.aborted || timedOut || (error instanceof DOMException && error.name === 'AbortError'));
+}
+
 export async function httpClient<TResponse>(
   path: string,
   options: RequestOptions = {},
@@ -94,10 +104,16 @@ export async function httpClient<TResponse>(
   let response: Response;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, REQUEST_TIMEOUT_MS);
+
+  const forwardAbort = () => controller.abort();
   if (signal) {
     if (signal.aborted) controller.abort();
-    else signal.addEventListener('abort', () => controller.abort(), { once: true });
+    else signal.addEventListener('abort', forwardAbort, { once: true });
   }
 
   try {
@@ -109,8 +125,11 @@ export async function httpClient<TResponse>(
     });
   } catch (error) {
     clearTimeout(timer);
-    if (!signal?.aborted) {
-      console.error('[HTTP] Falha na requisição:', {
+    if (signal) signal.removeEventListener('abort', forwardAbort);
+
+    const expected = isExpectedCancellation(error, signal, timedOut) || isExpectedOptionalRequest(path);
+    if (!expected) {
+      console.error('[HTTP] Falha inesperada na requisição:', {
         url: `${API_URL}${path}`,
         method,
         error,
@@ -118,10 +137,14 @@ export async function httpClient<TResponse>(
     }
 
     throw new ApiError(
-      'Não foi possível conectar ao servidor. Verifique sua conexão.',
+      timedOut
+        ? 'A solicitação demorou demais e foi cancelada.'
+        : 'Não foi possível conectar ao servidor. Verifique sua conexão.',
       0,
     );
   }
+
+  if (signal) signal.removeEventListener('abort', forwardAbort);
 
   const data = await response.json().catch(() => ({}));
   clearTimeout(timer);

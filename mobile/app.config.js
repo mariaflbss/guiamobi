@@ -10,5 +10,7 @@ module.exports = {
           'Usamos sua localização para sugerir sua origem e calcular rotas de transporte público.',
       },
     ],
+    'expo-asset',
+    'expo-audio',
   ],
 };
