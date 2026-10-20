@@ -24,7 +24,7 @@ export interface PoiItem {
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 300;
-const REQUEST_TIMEOUT_MS = 12000;
+const REQUEST_TIMEOUT_MS = 9000;
 const MIN_INTERVAL_MS = 1000;
 
 const cache = new Map<string, { expiresAt: number; items: PoiItem[] }>();
@@ -39,21 +39,9 @@ const OSM_FILTERS: Record<PoiCategory, string> = {
   square: '["place"="square"]',
   pharmacy: '["amenity"="pharmacy"]',
   dentist: '["amenity"="dentist"]',
-  supermarket: '["shop"="supermarket"]',
-  school: '["amenity"="school"]',
 };
 
-// A fila é serial (1 consulta/s + latência da Overpass). Durante uma viagem longa o
-// app gera consultas mais rápido do que a fila consegue atender; sem limite, o
-// atraso cresce sem parar e as requisições pendentes ocupam as conexões do app,
-// travando a busca seguinte. Acima do limite, falha rápido: o app trata o POI como
-// opcional e tenta de novo na próxima célula.
-const MAX_PENDING = 3;
-let pending = 0;
-
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  if (pending >= MAX_PENDING) return Promise.reject(new Error('fila de consultas cheia'));
-  pending += 1;
   const run = queue.then(async () => {
     const wait = lastRequestAt + MIN_INTERVAL_MS - Date.now();
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
@@ -61,7 +49,7 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
     return task();
   });
   queue = run.catch(() => undefined);
-  return run.finally(() => { pending -= 1; });
+  return run;
 }
 
 interface OverpassElement {
@@ -73,6 +61,12 @@ interface OverpassElement {
   tags?: Record<string, string>;
 }
 
+/** Praça no OSM: place=square, ou parque/praça nomeado como "Praça ...". */
+function isSquare(tags: Record<string, string>): boolean {
+  if (tags.place === 'square') return true;
+  return (tags.leisure === 'park' || tags.leisure === 'garden') && /^pra[çc]a\b/i.test(tags.name ?? '');
+}
+
 function categoryOf(tags: Record<string, string> | undefined, wanted: PoiCategory[]): PoiCategory | null {
   if (!tags) return null;
   for (const category of wanted) {
@@ -80,18 +74,28 @@ function categoryOf(tags: Record<string, string> | undefined, wanted: PoiCategor
     if (category === 'clinic' && tags.amenity === 'clinic') return category;
     if (category === 'bank' && tags.amenity === 'bank') return category;
     if (category === 'atm' && tags.amenity === 'atm') return category;
-    if (category === 'square' && tags.place === 'square') return category;
+    if (category === 'square' && isSquare(tags)) return category;
     if (category === 'pharmacy' && tags.amenity === 'pharmacy') return category;
     if (category === 'dentist' && tags.amenity === 'dentist') return category;
-    if (category === 'supermarket' && tags.shop === 'supermarket') return category;
-    if (category === 'school' && tags.amenity === 'school') return category;
   }
   return null;
 }
 
 export function buildOverpassQuery(lat: number, lng: number, radius: number, categories: PoiCategory[]): string {
-  const clauses = categories.map((c) => `nwr${OSM_FILTERS[c]}(around:${radius},${lat},${lng});`).join('');
-  return `[out:json][timeout:10];(${clauses});out center 60;`;
+  // Uma única busca agrupada é bem mais leve que várias consultas separadas.
+  const around = `(around:${radius},${lat},${lng})`;
+  const amenities = categories
+    .map((category) => OSM_FILTERS[category].match(/"amenity"="([^"]+)"/)?.[1])
+    .filter((value): value is string => Boolean(value));
+  const clauses: string[] = [];
+
+  if (amenities.length > 0) clauses.push(`nwr["amenity"~"^(${amenities.join('|')})$"]${around};`);
+  if (categories.includes('square')) {
+    clauses.push(`nwr["place"="square"]${around};`);
+    clauses.push(`nwr["leisure"~"^(park|garden)$"]["name"~"^Pra[çc]a",i]${around};`);
+  }
+
+  return `[out:json][timeout:8];(${clauses.join('')});out center 300;`;
 }
 
 export const poiService = {
@@ -109,29 +113,48 @@ export const poiService = {
     const requestStartedAt = Date.now();
     console.info(`[POI] iniciando consulta ${key}.`);
     const queueStartedAt = Date.now();
+    const endpoints = Array.from(new Set([
+      env.OVERPASS_URL,
+      ...env.OVERPASS_FALLBACK_URLS.split(',').map((url) => url.trim()).filter(Boolean),
+    ]));
+
     const elements = await enqueue(async () => {
       console.info(`[POI] ${key} entrou na execução após ${Date.now() - queueStartedAt}ms.`);
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-      try {
-        const response = await fetch(env.OVERPASS_URL, {
-          method: 'POST',
-          headers: {
-            'User-Agent': `GuiaMobiAcessivel/1.0 (${contact})`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json',
-          },
-          body: `data=${encodeURIComponent(query)}`,
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`overpass status ${response.status}`);
-        const body = (await response.json()) as { elements?: OverpassElement[] };
-        return body.elements ?? [];
-      } finally {
-        clearTimeout(timer);
+      let lastError: unknown = null;
+
+      for (const endpoint of endpoints) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'User-Agent': `GuiaMobiAcessivel/1.0 (${contact})`,
+              Accept: 'application/json',
+              'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            },
+            body: `data=${encodeURIComponent(query)}`,
+            signal: controller.signal,
+          });
+          if (!response.ok) throw new Error(`overpass status ${response.status}`);
+          const body = (await response.json()) as { elements?: OverpassElement[] };
+          const result = body.elements ?? [];
+          if (result.length > 0 || endpoint === endpoints[endpoints.length - 1]) {
+            console.info(`[POI] ${key} respondeu via ${endpoint} com ${result.length} elemento(s).`);
+            return result;
+          }
+          console.warn(`[POI] ${endpoint} respondeu vazio para ${key}; tentando o próximo espelho.`);
+        } catch (error) {
+          lastError = error;
+          console.warn(`[POI] falha em ${endpoint} para ${key}; tentando o próximo espelho.`);
+        } finally {
+          clearTimeout(timer);
+        }
       }
+
+      throw lastError instanceof Error ? lastError : new Error('nenhum endpoint Overpass respondeu');
     }).catch((error) => {
-      console.info('[POI] Consulta opcional indisponível:', error instanceof Error ? error.message : error);
+      console.error('Falha na consulta de pontos de referência:', error);
       throw new AppError('O serviço de pontos de referência está indisponível agora. Tente novamente em instantes.', 502);
     });
 

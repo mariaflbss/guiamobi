@@ -35,10 +35,25 @@ export const profilePhotoService = {
     const extension = /\.(png|webp)$/i.exec(sourceUri)?.[1]?.toLowerCase() ?? 'jpg';
     const directory = FileSystem.documentDirectory;
     if (!directory) throw new Error('Não foi possível acessar o armazenamento local para salvar a foto.');
-    const destination = `${directory}profile-${userId}.${extension}`;
-    try { await FileSystem.deleteAsync(destination, { idempotent: true }); } catch { /* arquivo ainda não existe */ }
+
+    // Não reutilizar o mesmo URI: o componente Image pode manter a imagem
+    // anterior em cache quando o arquivo é sobrescrito no mesmo caminho.
+    // Um URI novo garante que a nova foto seja exibida imediatamente.
+    const destination = `${directory}profile-${userId}-${Date.now()}.${extension}`;
+    const previousUri = await secureStorageService.getItem(key(userId));
+
     await FileSystem.copyAsync({ from: sourceUri, to: destination });
     await secureStorageService.setItem(key(userId), destination);
+
+    if (previousUri && previousUri !== destination) {
+      try {
+        await FileSystem.deleteAsync(previousUri, { idempotent: true });
+      } catch {
+        // A foto anterior é apenas um artefato de armazenamento; não deve
+        // impedir que a nova foto seja salva e exibida.
+      }
+    }
+
     return destination;
   },
 };

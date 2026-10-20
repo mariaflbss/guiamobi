@@ -4,14 +4,20 @@ import { Coordinates } from '../types/location';
 
 /**
  * Pontos de referência reais próximos a um ponto (US09). Mantém apenas
- * categorias úteis para orientação: saúde, serviços essenciais, supermercado
- * e praça. A posição é arredondada para reaproveitar cache sem consultar a
+ * categorias úteis para orientação: hospital, clínica, farmácia, dentista,
+ * banco, caixa eletrônico e praça. A posição é arredondada para reaproveitar cache sem consultar a
  * fonte pública a cada pequena variação do GPS.
  */
-const POI_CATEGORIES: PoiItem['category'][] = ['hospital', 'clinic', 'pharmacy', 'dentist', 'bank', 'atm', 'supermarket', 'square', 'school'];
+const POI_CATEGORIES: PoiItem['category'][] = ['hospital', 'clinic', 'pharmacy', 'dentist', 'bank', 'atm', 'square'];
 const clientCache = new Map<string, PoiItem[]>();
 const clientPending = new Map<string, { promise: Promise<PoiItem[]>; controller: AbortController; refs: number }>();
 const MAX_CLIENT_CACHE = 60;
+const POI_CELL_DEGREES = 0.002;
+// A consulta é feita no CENTRO da célula com folga sobre o raio de 1 km (meia
+// diagonal da célula ~160 m). Assim qualquer posição dentro da célula tem
+// cobertura local mais enxuta e reduz a quantidade de dados consultados.
+const QUERY_RADIUS_METERS = 500;
+const MAX_ATTEMPTS = 3;
 
 function remember(key: string, value: PoiItem[]): void {
   clientCache.delete(key);
@@ -29,7 +35,7 @@ function loadCell(key: string, center: Coordinates): { promise: Promise<PoiItem[
   let entry = clientPending.get(key);
   if (!entry) {
     const controller = new AbortController();
-    const promise: Promise<PoiItem[]> = poiService.nearby(center, 1000, POI_CATEGORIES, controller.signal).then((result) => {
+    const promise: Promise<PoiItem[]> = poiService.nearby(center, QUERY_RADIUS_METERS, POI_CATEGORIES, controller.signal).then((result) => {
       remember(key, result);
       return result;
     }).finally(() => {
@@ -41,44 +47,59 @@ function loadCell(key: string, center: Coordinates): { promise: Promise<PoiItem[
   entry.refs += 1;
   const current = entry;
   let released = false;
-  // Quando ninguém mais precisa da consulta (célula mudou ou a tela saiu), cancela:
-  // assim nada fica pendente ocupando conexão depois que a viagem termina.
+  // A consulta de orientação é relativamente pesada (Overpass). Se o GPS
+  // cruzar a célula enquanto a resposta ainda está chegando, mantemos a
+  // requisição em voo para que ela possa preencher o cache e ser exibida assim
+  // que chegar. O resultado continua protegido pelo `cancelled` do hook, então
+  // uma tela que saiu não recebe atualização tardia.
   return {
     promise: current.promise,
     release: () => {
       if (released) return;
       released = true;
       current.refs -= 1;
-      if (current.refs <= 0) current.controller.abort();
     },
   };
 }
 
 export function useNearbyPois(center: Coordinates | null | undefined, enabled = true) {
   const [items, setItems] = useState<PoiItem[]>([]);
-  // O usuário pode se mover dezenas de vezes por minuto durante a navegação.
-  // Não fazemos uma chamada ao backend para cada pequena mudança: agrupamos a
-  // posição em células de aproximadamente 100-110 m. Assim os POIs permanecem
-  // visíveis enquanto a consulta seguinte é feita e mudam conforme a viagem
-  // realmente entra em outra região.
+  // Não consultamos o Overpass a cada pequena variação do GPS. Uma célula de
+  // aproximadamente 220 m mantém boa cobertura sobre o raio de 1 km e
+  // reduz bastante o número de chamadas durante a simulação.
   const key = center
-    ? `${(Math.round(center.latitude / 0.001) * 0.001).toFixed(3)},${(Math.round(center.longitude / 0.001) * 0.001).toFixed(3)}`
+    ? `${(Math.round(center.latitude / POI_CELL_DEGREES) * POI_CELL_DEGREES).toFixed(3)},${(Math.round(center.longitude / POI_CELL_DEGREES) * POI_CELL_DEGREES).toFixed(3)}`
     : null;
 
   useEffect(() => {
     if (!enabled || !center || !key) return;
     let cancelled = false;
-    const { promise, release } = loadCell(key, center);
-    promise
-      .then((result) => {
-        if (!cancelled) setItems(result);
-      })
-      .catch(() => {
-        // Não apaga os POIs anteriores só porque uma consulta transitória
-        // falhou. Eles continuam válidos até haver uma resposta nova.
-      });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let release: () => void = () => undefined;
+    const cellCenter: Coordinates = {
+      latitude: Math.round(center.latitude / POI_CELL_DEGREES) * POI_CELL_DEGREES,
+      longitude: Math.round(center.longitude / POI_CELL_DEGREES) * POI_CELL_DEGREES,
+    };
+    const attempt = (n: number) => {
+      const loaded = loadCell(key, cellCenter);
+      release = loaded.release;
+      loaded.promise
+        .then((result) => {
+          if (!cancelled) setItems(result);
+        })
+        .catch(() => {
+          // Não apaga os POIs anteriores só porque uma consulta transitória
+          // falhou (a fonte pública às vezes oscila): tenta de novo com espera
+          // crescente, sem bloquear a tela.
+          release();
+          if (cancelled || n >= MAX_ATTEMPTS) return;
+          timer = setTimeout(() => attempt(n + 1), 1500 * n);
+        });
+    };
+    attempt(1);
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
       release();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

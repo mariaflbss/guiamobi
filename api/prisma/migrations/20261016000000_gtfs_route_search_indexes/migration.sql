@@ -8,5 +8,3 @@ CREATE INDEX "transit_stop_times_trip_id_stop_id_sequence_idx"
 CREATE INDEX "transit_trips_line_id_service_id_idx"
   ON "transit_trips"("line_id", "service_id");
 
-CREATE INDEX "transit_stops_latitude_longitude_idx"
-  ON "transit_stops"("latitude", "longitude");

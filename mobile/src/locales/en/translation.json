@@ -11,7 +11,9 @@
     "close": "Close",
     "skip": "Skip",
     "offlineMessage": "You are offline. Some features may not work.",
-    "to": "to"
+    "to": "to",
+    "offlineShort": "Offline — previously loaded data remains available when cached.",
+    "onlineMessage": "Internet connection restored."
   },
   "splash": {
     "title": "GuiaMobi",
@@ -129,12 +131,22 @@
     "useAsDestination": "Use as destination",
     "linesTitle": "Favorite lines",
     "noLines": "You have not favorited any line yet. Open a line and tap the heart.",
+    "deleteLineConfirmTitle": "Delete favorite line",
+    "deleteLineConfirmMessage": "Are you sure you want to delete line {{code}} — {{name}}?",
+    "deleteLineLabel": "Delete line {{code}}",
+    "deleteLineHint": "Removes this line from favorites.",
+    "openLineHint": "Open line details.",
+    "lineNotFoundTitle": "Line not found",
+    "lineNotFoundMessage": "Line {{code}} could not be found in the current transit data.",
+    "lineLoadErrorTitle": "Could not open line",
+    "lineLoadErrorMessage": "Check your connection and try again.",
     "deleteConfirmTitle": "Delete favorite",
     "deleteConfirmMessage": "Are you sure you want to delete \"{{nickname}}\"?",
     "deleteLabel": "Delete {{nickname}}",
     "selectHint": "Tap to choose whether it is origin or destination",
     "duplicateFavorite": "A favorite with this category and address already exists.",
-    "saveError": "Could not save the favorite. Please try again."
+    "saveError": "Could not save the favorite. Please try again.",
+    "duplicateFavoriteNamed": "Favorite already saved. This address is already saved as \"{{nickname}}\" in this category."
   },
   "history": {
     "title": "History",
@@ -199,7 +211,15 @@
     "helpDescription": "Frequently asked questions and contact",
     "logout": "Sign out",
     "logoutConfirmTitle": "Sign out",
-    "logoutConfirmMessage": "Do you really want to sign out? You will need to sign in again to use the app."
+    "logoutConfirmMessage": "Do you really want to sign out? You will need to sign in again to use the app.",
+    "gpsSection": "Location",
+    "gpsSensitivity": "GPS accuracy",
+    "gpsSensitivityDescription": "Choose the balance between accuracy and resource usage.",
+    "gpsEconomic": "Battery saving",
+    "gpsBalanced": "Balanced",
+    "gpsPrecise": "Precise",
+    "ambientAdaptation": "Ambient adaptation",
+    "ambientAdaptationDescription": "Uses the ambient light sensor when available to adjust interface readability."
   },
   "simpleMode": {
     "title": "Simple Mode",
@@ -314,7 +334,8 @@
     "viewAlternative": "View alternative",
     "distanceMetersValue": "{{count}} m",
     "foundCountLabel": "Routes found: {{count}}",
-    "foundCountSpoken": "{{count}} routes found."
+    "foundCountSpoken": "{{count}} routes found.",
+    "offlineNoCache": "You are offline and this route has not been loaded on this device yet."
   },
   "routeDetail": {
     "summary": "{{stops}} stops · {{minutes}} min",
@@ -362,7 +383,10 @@
       "work": "Work",
       "health": "Health",
       "other": "Other"
-    }
+    },
+    "saveOffline": "Save route for offline use",
+    "offlineSavedButton": "Route saved offline",
+    "offlineSaved": "Route map data and previously loaded information saved for offline use."
   },
   "tracking": {
     "title": "Trip in progress - Line {{code}}",
@@ -395,7 +419,17 @@
     "nearbyReference": "Nearby reference point: {{name}}",
     "atStopTitle": "Lines available at this stop",
     "atStopBody": "You are near this stop. These lines depart from here and can be used as route options.",
-    "distanceMetersValue": "{{count}} m"
+    "distanceMetersValue": "{{count}} m",
+    "simulationBadge": "SIMULATION",
+    "simulationStart": "Simulation",
+    "simulationStartHint": "Starts the route simulation for demonstration.",
+    "simulationPause": "Pause",
+    "simulationPauseHint": "Pauses the simulation and keeps the current progress.",
+    "simulationContinue": "Continue",
+    "simulationContinueHint": "Continues the simulation from where it was paused.",
+    "simulationFinish": "Finish",
+    "simulationFinishHint": "Finishes the simulation and returns to the route.",
+    "highMovementStop": "Additional alert: stop {{name}} has high activity."
   },
   "stopAlert": {
     "title": "Get ready!",

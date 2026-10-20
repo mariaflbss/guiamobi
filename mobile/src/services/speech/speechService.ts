@@ -154,6 +154,30 @@ export const speechService = {
     void Promise.all(Array.from({ length: Math.min(PREFETCH_CONCURRENCY, unique.length) }, worker));
   },
 
+  /**
+   * Reproduz uma frase que já foi pré-carregada sem iniciar outra síntese.
+   * Se o áudio ainda não estiver no cache, cai para o mesmo fluxo de speak().
+   */
+  speakCached(text: string, language: SupportedLanguage, rate: SpeechRate): void {
+    const cleanText = text.trim();
+    if (!cleanText) return;
+    const key = cacheKey(cleanText, language);
+    const uri = audioUriCache.get(key);
+    if (!uri) {
+      this.speak(cleanText, { rate, language });
+      return;
+    }
+    stopCurrentAudio();
+    const generation = ++requestGeneration;
+    try {
+      activePlayer = createAudioPlayer(uri);
+      activePlayer.setPlaybackRate(SPEECH_RATE_MAP[rate], 'high');
+      if (generation === requestGeneration) activePlayer.play();
+    } catch {
+      if (generation === requestGeneration) speakNatively(cleanText, { rate, language });
+    }
+  },
+
   speak(text: string, options: { rate: SpeechRate; language: SupportedLanguage }): void {
     if (prioritySpeechActive) return;
     const cleanText = text.trim();

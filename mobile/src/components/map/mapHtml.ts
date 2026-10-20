@@ -21,7 +21,7 @@ const PAGE_SCRIPT = `
   'use strict';
 
   var DEFAULT_LABELS = { line: '', you: 'Sua localização atual', origin: 'Origem', destination: 'Destino', stop: 'Parada', address: 'Endereço', mapUnavailable: 'Mapa indisponível', unnamedPoi: 'Nome não disponível', favorite: 'Favorito', favoriteCategories: {}, poi: {} };
-  var DEFAULT_COLORS = { line: '#1852A4', you: '#0B2E6B', origin: '#7CC4FA', originRing: '#0F5FA8', destination: '#16A34A', stop: '#64748B', poi: '#B45309', favorite: '#7C3AED' };
+  var DEFAULT_COLORS = { line: '#1852A4', you: '#1852A4', origin: '#2F6FB6', originRing: '#2F6FB6', destination: '#15803D', stop: '#6B7280', poi: '#F97316', favorite: '#6D28D9' };
 
   var OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
   var PROVIDERS = {
@@ -288,10 +288,10 @@ const PAGE_SCRIPT = `
         if (!(s.destination || s.boarding) && s.name) lines.push(labels.stop + ' ' + (s.index + 1));
         if (s.address) lines.push(s.address);
         var marker;
-        if (s.destination) marker = dot(latlng, 'stops', 10, colors.destination, { color: '#ffffff', weight: 3 });
-        else if (s.boarding) marker = dot(latlng, 'stops', 10, colors.origin, { color: colors.originRing, weight: 4 });
-        else if (s.current) marker = dot(latlng, 'stops', 7, colors.stop, { color: '#1f2937', weight: 3 });
-        else marker = dot(latlng, 'stops', 5, colors.stop, { weight: 2 });
+        if (s.destination) marker = dot(latlng, 'stops', 8, colors.destination, { color: '#ffffff', weight: 2.5 });
+        else if (s.boarding) marker = dot(latlng, 'stops', 8, colors.origin, { color: '#ffffff', weight: 2.5 });
+        else if (s.current) marker = dot(latlng, 'stops', 6, colors.stop, { color: '#4B5563', weight: 2.5 });
+        else marker = dot(latlng, 'stops', 4, colors.stop, { color: '#ffffff', weight: 1.5, fillOpacity: 0.88 });
         marker.options.interactive = false;
         groups.stops.addLayer(marker);
         groups.stops.addLayer(hit(latlng, 'stops', popupEl(lines), { type: 'stop', text: lines.filter(Boolean).join('. ') }));
@@ -303,26 +303,45 @@ const PAGE_SCRIPT = `
       groups.shape.clearLayers();
       state.shapePoints = d.shape.length > 1 ? d.shape : [];
       if (d.shape.length > 1) {
-        groups.shape.addLayer(L.polyline(d.shape, { pane: 'shape', color: colors.line, weight: 5, opacity: 0.9, interactive: false }));
+        groups.shape.addLayer(L.polyline(d.shape, { pane: 'shape', color: colors.line, weight: 4, opacity: 0.78, interactive: false }));
       }
     }
 
     if (sig('traveled', [d.traveledShape, colors])) {
       groups.traveled.clearLayers();
       if (d.traveledShape && d.traveledShape.length > 1) {
-        groups.traveled.addLayer(L.polyline(d.traveledShape, { pane: 'traveled', color: colors.line, weight: 8, opacity: 1, interactive: false }));
+        groups.traveled.addLayer(L.polyline(d.traveledShape, { pane: 'traveled', color: colors.line, weight: 6, opacity: 0.9, interactive: false }));
       }
     }
 
-    if (sig('pois', [d.pois, labels.poi, labels.unnamedPoi])) {
+    if (sig('pois', [d.pois, colors.poi, labels.poi, labels.unnamedPoi])) {
       groups.pois.clearLayers();
       d.pois.forEach(function (p) {
-        var latlng = [p.lat, p.lon];
-        groups.pois.addLayer(dot(latlng, 'pois', 7, colors.poi, { color: '#ffffff', weight: 2, interactive: false }));
+        var lat = Number(p.lat);
+        var lon = Number(p.lon);
+        if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+
+        var latlng = [lat, lon];
         var categoryLabel = labels.poi && labels.poi[p.category] ? labels.poi[p.category] : labels.unnamedPoi;
         var nameLabel = p.name || labels.unnamedPoi;
         var content = popupEl([nameLabel, categoryLabel]);
-        groups.pois.addLayer(hit(latlng, 'pois', content, { type: 'poi', text: nameLabel + '. ' + categoryLabel }));
+
+        // O marcador visual e a área de toque são o MESMO objeto. Assim o POI
+        // laranja não fica escondido por um hit-marker transparente sobreposto.
+        var marker = L.marker(latlng, {
+          pane: 'pois',
+          interactive: true,
+          bubblingMouseEvents: false,
+          icon: L.divIcon({
+            className: 'poi-marker',
+            html: '<span style=\"display:block;width:14px;height:14px;border-radius:50%;background:' + colors.poi + ';border:2px solid #ffffff;box-sizing:border-box;\"></span>',
+            iconSize: [44, 44],
+            iconAnchor: [22, 22],
+          })
+        });
+        marker.bindPopup(content, { maxWidth: 280, closeButton: true });
+        marker.on('popupclose', function () { post({ type: 'stopSpeech' }); });
+        groups.pois.addLayer(marker);
       });
     }
 
@@ -332,7 +351,7 @@ const PAGE_SCRIPT = `
       (d.favorites || []).forEach(function (f) {
         var latlng = [f.lat, f.lon];
         state.favoritePoints.push(latlng);
-        groups.favorites.addLayer(dot(latlng, 'favorites', 8, colors.favorite, { color: '#ffffff', weight: 2, interactive: false }));
+        groups.favorites.addLayer(dot(latlng, 'favorites', 6, colors.favorite, { color: '#ffffff', weight: 2, fillOpacity: 0.92, interactive: false }));
         var title = f.nickname || labels.favorite;
         var category = f.category && labels.favoriteCategories && labels.favoriteCategories[f.category] ? labels.favoriteCategories[f.category] : '';
         var lines = [title, category, f.address || ''];
@@ -343,7 +362,7 @@ const PAGE_SCRIPT = `
     if (sig('vehicles', [d.vehicles, colors, labels])) {
       groups.vehicles.clearLayers();
       d.vehicles.forEach(function (v) {
-        groups.vehicles.addLayer(dot(v, 'vehicles', 7, colors.line, { interactive: false }));
+        groups.vehicles.addLayer(dot(v, 'vehicles', 7, colors.line, { color: '#ffffff', weight: 2, interactive: false }));
         groups.vehicles.addLayer(hit(v, 'vehicles', popupEl([labels.line]), { type: 'vehicle', text: labels.line }));
       });
     }
@@ -357,8 +376,8 @@ const PAGE_SCRIPT = `
     state.userPos = pos && isFinite(pos[0]) && isFinite(pos[1]) ? pos : null;
     if (!state.userPos) return;
     var colors = state.colors;
-    groups.user.addLayer(L.circleMarker(state.userPos, { pane: 'user', radius: 18, stroke: false, fillColor: colors.you, fillOpacity: 0.2, interactive: false }));
-    var me = dot(state.userPos, 'user', 9, colors.you, { weight: 3, interactive: false });
+    groups.user.addLayer(L.circleMarker(state.userPos, { pane: 'user', radius: 13, stroke: false, fillColor: colors.you, fillOpacity: 0.16, interactive: false }));
+    var me = dot(state.userPos, 'user', 7, colors.you, { color: '#ffffff', weight: 2.5, interactive: false });
     groups.user.addLayer(me);
     groups.user.addLayer(hit(state.userPos, 'user', popupEl([state.labels.you]), { type: 'user', text: state.labels.you }));
     // Primeiro sinal de GPS: enquadra usuário + paradas (uma vez, e só se

@@ -82,7 +82,7 @@ export const routesController = {
    */
   async serviceAlerts(request: FastifyRequest, reply: FastifyReply) {
     const { lineId } = lineIdParamsSchema.parse(request.params);
-    const line = await prisma.transitLine.findUnique({ where: { id: lineId }, select: { gtfsRouteId: true, code: true } });
+    const line = await prisma.transitLine.findUnique({ where: { id: lineId }, select: { id: true, gtfsRouteId: true, code: true } });
     if (!line) throw new AppError('Linha não encontrada.', 404);
 
     // A fixture permite simular um problema operacional sem apresentar esse

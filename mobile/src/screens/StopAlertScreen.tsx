@@ -38,7 +38,7 @@ export function StopAlertScreen({ route, navigation }: Props) {
     if (voiceEnabled) {
       speechService.speakPriority(message, { rate: settings.speechRate, language });
     }
-    if (hapticsEnabled) hapticsService.warning();
+    if (hapticsEnabled) hapticsService.short();
 
     return () => {
       speechService.stop();

@@ -26,6 +26,8 @@ import { AppStackParamList } from '../navigation/types';
 import { Coordinates } from '../types/location';
 import { distanceMeters } from '../utils/geo';
 import { speechService } from '../services/speech/speechService';
+import { hapticsService } from '../services/haptics/hapticsService';
+import { movementService } from '../services/api/movementService';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Tracking'>;
 
@@ -70,7 +72,12 @@ export function TrackingScreen({ route, navigation }: Props) {
   const { vehicles } = useVehiclePositions(p.lineId, isFocused);
 
   const [user, setUser] = useState<Coordinates | null>(null);
-  const [simulationActive, setSimulationActive] = useState(p.simulation === true);
+  const userRef = useRef<Coordinates | null>(null);
+  // A viagem iniciada pela apresentação usa a simulação automaticamente.
+  // Não há botão de simulação na interface: repetir e cancelar continuam sendo
+  // as únicas ações disponíveis durante o acompanhamento.
+  const simulationMode = true;
+  const [simulationRunning, setSimulationRunning] = useState(false);
   const simulationElapsedRef = useRef(0);
   const [simulationProgress, setSimulationProgress] = useState(0);
   const [traveledPath, setTraveledPath] = useState<Coordinates[]>([]);
@@ -83,6 +90,9 @@ export function TrackingScreen({ route, navigation }: Props) {
   const alertedRef = useRef(false);
   const arrivedRef = useRef(false);
   const lastSpokenStopRef = useRef<string | null>(null);
+  const lastHighMovementAlertRef = useRef<string | null>(null);
+  const pendingAnnouncementRef = useRef<string | null>(null);
+  const pendingAnnouncementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAt = useRef(new Date().toISOString()).current;
 
   const stops = useMemo(() => line?.stops ?? [], [line]);
@@ -131,17 +141,21 @@ export function TrackingScreen({ route, navigation }: Props) {
     return [boarding, destination];
   }, [ready, stops, boardingIndex, destinationIndex, rawRouteShape, nearestShapeIndex]);
 
-  // Modo demonstração: aproximadamente 20 segundos entre cada parada.
-  // O intervalo maior deixa a movimentação perceptível e dá tempo para os POIs
-  // serem atualizados conforme o usuário avança pelo trajeto.
-  // O tempo é distribuído pelo traçado real entre as paradas, mantendo o
-  // marcador sobre a geometria da rua em vez de fazê-lo saltar em linha reta.
+  // Modo demonstração: reduzimos o tempo para os testes da sprint sem
+  // transformar a viagem em uma animação instantânea. O limite de 2 minutos
+  // mantém viagens longas testáveis e ainda dá tempo para perceber as
+  // atualizações de paradas, POIs e avisos de acessibilidade.
   const stopCountForSimulation = Math.max(1, destinationIndex - boardingIndex);
-  const SIMULATION_MS_PER_STOP = 20_000;
-  const totalDurationMs = stopCountForSimulation * SIMULATION_MS_PER_STOP;
+  const SIMULATION_MS_PER_STOP = 12_000;
+  const MIN_SIMULATION_DURATION_MS = 90_000;
+  const MAX_SIMULATION_DURATION_MS = 120_000;
+  const totalDurationMs = Math.min(
+    MAX_SIMULATION_DURATION_MS,
+    Math.max(MIN_SIMULATION_DURATION_MS, stopCountForSimulation * SIMULATION_MS_PER_STOP),
+  );
 
   const simulationStopProgress = useMemo(() => {
-    if (!simulationActive || !ready || simulationPath.length < 2) return null;
+    if (!simulationRunning || !ready || simulationPath.length < 2) return null;
     const values: number[] = [];
     for (let i = boardingIndex; i <= destinationIndex; i += 1) {
       let best = Infinity;
@@ -153,10 +167,28 @@ export function TrackingScreen({ route, navigation }: Props) {
       values.push(bestIndex / Math.max(1, simulationPath.length - 1));
     }
     return values;
-  }, [simulationActive, ready, simulationPath, boardingIndex, destinationIndex, stops]);
+  }, [simulationRunning, ready, simulationPath, boardingIndex, destinationIndex, stops]);
+
+  // A simulação começa assim que a viagem está pronta, como no fluxo original
+  // de demonstração. O usuário não precisa ativar um modo separado.
+  useEffect(() => {
+    if (!ready || !isFocused || simulationPath.length < 2 || simulationRunning) return;
+    setSimulationProgress(0);
+    setTraveledPath([]);
+    lastTraveledPointRef.current = null;
+    passedIndexRef.current = boardingIndex - 1;
+    alertedRef.current = false;
+    arrivedRef.current = false;
+    lastSpokenStopRef.current = null;
+    lastHighMovementAlertRef.current = null;
+    setHighMovementStopId(null);
+    simulationElapsedRef.current = 0;
+    setUser(simulationPath[0] ?? stops[boardingIndex]?.stop ?? null);
+    setSimulationRunning(true);
+  }, [ready, isFocused, simulationPath, boardingIndex, stops, simulationRunning]);
 
   useEffect(() => {
-    if (!simulationActive || !isFocused || simulationPath.length < 2 || !ready) return;
+    if (!simulationRunning || !isFocused || simulationPath.length < 2 || !ready) return;
     if (simulationElapsedRef.current === 0) setUser(simulationPath[0]);
     const intervalMs = 100;
     const interval = setInterval(() => {
@@ -177,12 +209,13 @@ export function TrackingScreen({ route, navigation }: Props) {
       if (elapsed >= totalDurationMs) clearInterval(interval);
     }, intervalMs);
     return () => clearInterval(interval);
-  }, [simulationActive, isFocused, simulationPath, ready, totalDurationMs]);
+  }, [simulationRunning, isFocused, simulationPath, ready, totalDurationMs]);
 
   // Mantém o histórico do trecho já percorrido para desenhar uma linha
   // acompanhando o usuário no mapa. Amostramos a cada ~15 m para não enviar
   // centenas de pontos idênticos ao WebView.
   useEffect(() => {
+    userRef.current = user;
     if (!user) return;
     const last = lastTraveledPointRef.current;
     if (last && distanceMeters(last, user) < 15) return;
@@ -195,7 +228,7 @@ export function TrackingScreen({ route, navigation }: Props) {
 
   // GPS real: mantém o comportamento de produção quando não estamos simulando.
   useEffect(() => {
-    if (simulationActive) return;
+    if (simulationMode) return;
     let stop: (() => void) | null = null;
     let cancelled = false;
     (async () => {
@@ -215,7 +248,7 @@ export function TrackingScreen({ route, navigation }: Props) {
       else stop = unsubscribe;
     })();
     return () => { cancelled = true; stop?.(); };
-  }, [simulationActive]);
+  }, [simulationMode]);
 
   // Progresso ao longo da linha (nunca volta para trás) e próxima parada.
   const progress = useMemo(() => {
@@ -224,7 +257,7 @@ export function TrackingScreen({ route, navigation }: Props) {
     const destination = { latitude: dest.latitude, longitude: dest.longitude };
 
     let passed = Math.max(passedIndexRef.current, boardingIndex - 1);
-    if (simulationActive && simulationStopProgress) {
+    if (simulationRunning && simulationStopProgress) {
       for (let local = 0; local < simulationStopProgress.length - 1; local += 1) {
         if (simulationStopProgress[local] <= simulationProgress + 0.000001) {
           passed = Math.max(passed, boardingIndex + local);
@@ -251,21 +284,51 @@ export function TrackingScreen({ route, navigation }: Props) {
       toNext,
       toDestination,
       remaining: Math.max(destinationIndex - passed, 0),
+      passedIndex: passed,
     };
-  }, [ready, stops, boardingIndex, destinationIndex, user, simulationActive, simulationProgress, simulationStopProgress]);
+  }, [ready, stops, boardingIndex, destinationIndex, user, simulationRunning, simulationProgress, simulationStopProgress]);
 
   // Dados reais para o mapa (US09): POIs do OpenStreetMap ao redor do usuário e
   // endereço real (rua/número, quando o OSM tem) da próxima parada.
   const nearbyPois = useNearbyPois(user, isFocused);
   const nextStopForReference = progress ? stops[progress.nextIndex]?.stop : null;
   const nextStopPois = useNearbyPois(nextStopForReference, isFocused);
+  // POIs de orientação seguem uma regra simples e previsível: são os pontos
+  // encontrados em até 1 km da localização do usuário. Não limitamos a lista
+  // artificialmente a 6 itens; a limpeza visual é feita no próprio marcador,
+  // sem retirar informação de orientação que pode ser relevante.
   const routePois = useMemo(() => {
-    const merged = new Map<string, typeof nearbyPois[number]>();
-    [...nearbyPois, ...nextStopPois].forEach((poi) => merged.set(poi.id, poi));
-    return Array.from(merged.values());
-  }, [nearbyPois, nextStopPois]);
+    if (!user) return nearbyPois;
+    return nearbyPois
+      .filter((poi) => distanceMeters(user, poi) <= 1000)
+      .sort((a, b) => distanceMeters(user, a) - distanceMeters(user, b));
+  }, [nearbyPois, user]);
+
+  // Durante a viagem, somente as paradas intermediárias já ultrapassadas
+  // deixam o mapa. Origem e destino permanecem visíveis durante toda a viagem,
+  // enquanto a próxima parada e as seguintes continuam disponíveis para
+  // orientação.
+  const mapStops = useMemo(() => {
+    if (!progress) return stops;
+    const firstVisible = Math.min(Math.max(progress.nextIndex, boardingIndex), destinationIndex);
+    const onward = stops.slice(firstVisible, destinationIndex + 1);
+    if (firstVisible <= boardingIndex) return onward;
+    return [stops[boardingIndex], ...onward];
+  }, [progress, stops, boardingIndex, destinationIndex]);
+  const mapBoardingIndex = progress ? 0 : (mapStops.length > 0 ? 0 : -1);
+  const mapDestinationIndex = mapStops.length > 0 ? mapStops.length - 1 : -1;
+  const mapCurrentStopIndex = progress
+    ? Math.max(0, mapStops.findIndex((stop) => stop.stop.id === stops[progress.nextIndex]?.stop.id))
+    : undefined;
   const nearbyLines = useNearbyLines(user, isFocused);
   const atStopLines = nearbyLines.filter((item) => item.stop.distanceMeters <= 40);
+  // Na ausência de um campo oficial de fluxo de passageiros no GTFS, usamos
+  // a quantidade de linhas que atendem a parada como indicador operacional
+  // de alta movimentação. O limiar é explícito para poder ser ajustado quando
+  // a fonte oficial de movimentação estiver disponível.
+  const HIGH_MOVEMENT_RADIUS_METERS = 200;
+  const [highMovementStopId, setHighMovementStopId] = useState<string | null>(null);
+
   const nextStopAddress = useStopAddress(progress ? stops[progress.nextIndex]?.stop : null, isFocused);
 
   function formatDistance(meters: number | null): string {
@@ -274,29 +337,134 @@ export function TrackingScreen({ route, navigation }: Props) {
     return t('tracking.distanceKm', { value: (meters / 1000).toFixed(1).replace('.', language === 'en' ? '.' : ',') });
   }
 
+  // Anúncios automáticos não interrompem uma fala que já está em andamento.
+  // Se duas paradas forem muito próximas, mantemos apenas a informação mais
+  // recente e a reproduzimos assim que o áudio atual terminar.
+  const queueAutomaticAnnouncement = React.useCallback((message: string) => {
+    pendingAnnouncementRef.current = message;
+    if (pendingAnnouncementTimerRef.current) return;
+
+    const attempt = async () => {
+      pendingAnnouncementTimerRef.current = null;
+      const pending = pendingAnnouncementRef.current;
+      if (!pending) return;
+      if (await speechService.isSpeaking()) {
+        pendingAnnouncementTimerRef.current = setTimeout(() => { void attempt(); }, 200);
+        return;
+      }
+      pendingAnnouncementRef.current = null;
+      announce(pending, { haptic: 'light' });
+    };
+
+    void attempt();
+  }, [announce]);
+
+  useEffect(() => () => {
+    pendingAnnouncementRef.current = null;
+    if (pendingAnnouncementTimerRef.current) {
+      clearTimeout(pendingAnnouncementTimerRef.current);
+      pendingAnnouncementTimerRef.current = null;
+    }
+  }, []);
+
   // Anuncia a próxima parada quando ela muda e também mantém uma orientação
   // periódica durante viagens longas (a cada 3 minutos).
   const lastPeriodicAnnouncementRef = useRef(0);
   useEffect(() => {
     if (!progress || progress.toNext === null) return;
     if (lastSpokenStopRef.current !== progress.nextName) {
+      const message = t('tracking.spokenNext', {
+        name: progress.nextName,
+        distance: formatDistance(progress.toNext),
+        remaining: progress.remaining,
+      });
+      // Pré-carrega uma vez por parada. Não usamos a distância como gatilho,
+      // porque ela muda a cada atualização do GPS e criaria downloads contínuos.
+      speechService.prefetch(message, language);
       lastSpokenStopRef.current = progress.nextName;
-      announce(t('tracking.spokenNext', { name: progress.nextName, distance: formatDistance(progress.toNext) }), { haptic: 'light' });
+      queueAutomaticAnnouncement(message);
     }
-  }, [progress?.nextName, progress?.toNext, announce, t]);
+  }, [progress?.nextName, progress?.toNext, progress?.remaining, language, queueAutomaticAnnouncement, t]);
+
+  // Atualiza a presença do usuário durante a viagem. O endpoint de movimento
+  // também registra a posição atual; aqui só precisamos manter a sessão ativa
+  // quando ainda não estamos dentro do raio de uma parada.
+  useEffect(() => {
+    if (!simulationRunning || !isFocused) return;
+    const interval = setInterval(() => {
+      const currentUser = userRef.current;
+      if (!currentUser) return;
+      const currentNextStop = progress ? stops[progress.nextIndex]?.stop : null;
+      if (!currentNextStop) return;
+      void movementService.checkNearStop(currentUser, currentNextStop, HIGH_MOVEMENT_RADIUS_METERS).catch(() => {});
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [simulationRunning, isFocused, progress?.nextIndex, stops]);
+
+  // US13: alta movimentação é estimada pela concentração de usuários ativos
+  // do próprio GuiaMobi em torno da próxima parada. O backend devolve somente
+  // a contagem agregada, nunca a posição ou a identidade dos demais usuários.
+  const shouldCheckMovement = Boolean(
+    progress &&
+    progress.nextIndex < destinationIndex &&
+    progress.toNext !== null &&
+    progress.toNext <= HIGH_MOVEMENT_RADIUS_METERS,
+  );
 
   useEffect(() => {
-    if (!simulationActive || !progress) return;
+    if (!shouldCheckMovement) return;
+
+    const nextStop = progress ? stops[progress.nextIndex]?.stop : null;
+    if (!nextStop) return;
+
+    let cancelled = false;
+    const check = async () => {
+      const currentUser = userRef.current;
+      if (!currentUser) return;
+      try {
+        const result = await movementService.checkNearStop(currentUser, nextStop, HIGH_MOVEMENT_RADIUS_METERS);
+        if (!cancelled && result.highMovement) setHighMovementStopId(nextStop.id);
+      } catch {
+        // A estimativa é complementar: falha de rede não interrompe a viagem.
+      }
+    };
+
+    void check();
+    const interval = setInterval(() => { void check(); }, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [shouldCheckMovement, progress?.nextIndex, stops]);
+
+  // Quando a concentração é confirmada, emite o alerta adicional uma única
+  // vez por parada durante a viagem.
+  useEffect(() => {
+    if (!progress || progress.nextIndex >= destinationIndex || !highMovementStopId) return;
+    if (highMovementStopId !== stops[progress.nextIndex]?.stop.id) return;
+    if (lastHighMovementAlertRef.current === highMovementStopId) return;
+
+    const nextStop = stops[progress.nextIndex].stop;
+    lastHighMovementAlertRef.current = highMovementStopId;
+    const message = t('tracking.highMovementStop', { name: nextStop.name });
+    queueAutomaticAnnouncement(message);
+    if (settings.feedbackMode === 'voz_vibracao' || settings.feedbackMode === 'vibracao') {
+      hapticsService.highMovement();
+    }
+  }, [progress?.nextIndex, destinationIndex, stops, highMovementStopId, queueAutomaticAnnouncement, settings.feedbackMode, t]);
+
+  useEffect(() => {
+    if (!simulationRunning || !progress) return;
     const elapsed = simulationElapsedRef.current;
     const interval = Math.floor(elapsed / 180000);
     if (interval > 0 && interval > lastPeriodicAnnouncementRef.current) {
       lastPeriodicAnnouncementRef.current = interval;
-      announce(t('tracking.spokenProgress', {
+      queueAutomaticAnnouncement(t('tracking.spokenProgress', {
         name: progress.nextName,
         remaining: progress.remaining,
-      }), { haptic: 'light' });
+      }));
     }
-  }, [simulationActive, simulationProgress, progress?.nextName, progress?.remaining, announce, t]);
+  }, [simulationRunning, simulationProgress, progress?.nextName, progress?.remaining, queueAutomaticAnnouncement, t]);
 
   // Alerta a ~200 m e chegada a ~40 m do destino
   useEffect(() => {
@@ -331,7 +499,13 @@ export function TrackingScreen({ route, navigation }: Props) {
 
   function repeat() {
     if (!progress) return;
-    announce(t('tracking.spokenNext', { name: progress.nextName, distance: formatDistance(progress.toNext) }), { haptic: 'light' });
+    const message = t('tracking.spokenNext', { name: progress.nextName, distance: formatDistance(progress.toNext), remaining: progress.remaining });
+    // Repetir é uma ação explícita do usuário: usa o áudio já pré-carregado
+    // quando disponível, evitando uma nova síntese de rede antes de responder.
+    speechService.speakCached(message, language, settings.speechRate);
+    if (settings.feedbackMode === 'voz_vibracao' || settings.feedbackMode === 'vibracao') {
+      hapticsService.light();
+    }
   }
 
   function cancelTrip() {
@@ -363,20 +537,20 @@ export function TrackingScreen({ route, navigation }: Props) {
         {ready ? (
           <View style={styles.mapArea}>
             <RouteMap
-              stops={stops.map((s) => s.stop)}
-              shape={simulationActive ? simulationPath : (line?.shape ?? p.shape)}
+              stops={mapStops.map((s) => s.stop)}
+              shape={simulationRunning ? simulationPath : (line?.shape ?? p.shape)}
               traveledShape={traveledPath}
               vehicles={vehicles.map((v) => ({ id: v.gtfsVehicleId, latitude: v.latitude, longitude: v.longitude }))}
               lineCode={p.lineCode}
-              boardingIndex={boardingIndex}
-              destinationIndex={destinationIndex}
-              currentStopIndex={progress?.nextIndex}
+              boardingIndex={mapBoardingIndex}
+              destinationIndex={mapDestinationIndex}
+              currentStopIndex={mapCurrentStopIndex}
               currentStopAddress={nextStopAddress}
               pois={routePois}
               favorites={nearbyFavorites}
               user={user}
               height={undefined}
-              badge={simulationActive ? 'SIMULAÇÃO' : t('tracking.gps')}
+              badge={simulationRunning ? t('tracking.simulationBadge') : t('tracking.gps')}
               accessibilityLabel={t('tracking.mapLabel', { code: p.lineCode })}
             />
           </View>
@@ -384,7 +558,13 @@ export function TrackingScreen({ route, navigation }: Props) {
 
         {ready ? (
           <RouteBottomSheet title={t('tracking.panelTitle')} initialHeight={245} collapsedHeight={82}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetContent} nestedScrollEnabled>
+            <ScrollView
+              style={styles.sheetScroll}
+              showsVerticalScrollIndicator
+              persistentScrollbar
+              contentContainerStyle={styles.sheetContent}
+              nestedScrollEnabled
+            >
               {errorMessage ? <InlineMessage message={errorMessage} tone="error" /> : null}
               {permissionDenied ? <InlineMessage message={t('tracking.permissionNeeded')} tone="warning" /> : null}
               {!permissionDenied && !user ? <InlineMessage message={t('tracking.locating')} tone="info" /> : null}
@@ -410,12 +590,34 @@ export function TrackingScreen({ route, navigation }: Props) {
 
               {progress ? (
                 <>
-                  <Card backgroundColor={c.primarySoft} borderColor={c.primary} style={styles.nextCard} accessible accessibilityLabel={`${t('tracking.nextStop')}: ${progress.nextName}. ${formatDistance(progress.toNext)}${minutesToNext ? `, ${t('tracking.mins', { count: minutesToNext })}` : ''}`} accessibilityLiveRegion="polite">
-                    <AccessibleText variant="label" color={c.primary} style={styles.eyebrow}>{t('tracking.nextStop')}</AccessibleText>
-                    <AccessibleText variant="title" weight="extrabold" style={styles.nextName}>{progress.nextName}</AccessibleText>
-                    <View style={styles.metaRow}>
-                      <View style={styles.meta}><Icon icon={MapPin} size={15} color={c.textSecondary} /><AccessibleText variant="caption" weight="bold" color={c.textSecondary}>{formatDistance(progress.toNext)}</AccessibleText></View>
-                      {minutesToNext ? <View style={styles.meta}><Icon icon={Clock3} size={15} color={c.textSecondary} /><AccessibleText variant="caption" weight="bold" color={c.textSecondary}>{t('tracking.mins', { count: minutesToNext })}</AccessibleText></View> : null}
+                  <Card backgroundColor={c.surface} borderColor={c.border} style={styles.timelineCard} accessible accessibilityLabel={`${t('tracking.timeline')}: ${progress.remaining} ${t('tracking.remainingStops').toLowerCase()}`} accessibilityLiveRegion="polite">
+                    <AccessibleText variant="label" color={c.textSecondary} style={styles.eyebrow}>{t('tracking.timeline')}</AccessibleText>
+                    <View style={styles.timeline}>
+                      {stops.slice(boardingIndex, destinationIndex + 1).map((item, localIndex) => {
+                        const absoluteIndex = boardingIndex + localIndex;
+                        const isPassed = absoluteIndex < progress.nextIndex;
+                        const isCurrent = absoluteIndex === progress.nextIndex;
+                        const isDestination = absoluteIndex === destinationIndex;
+                        return (
+                          <View key={item.stop.id} style={styles.timelineRow} accessible accessibilityLabel={`${item.stop.name}${isCurrent ? `, ${t('tracking.nextStop')}` : isPassed ? `, ${t('tracking.passedStop')}` : ''}`}>
+                            <View style={styles.timelineRail}>
+                              <View style={[styles.timelineDot, { backgroundColor: isCurrent ? c.primary : isPassed ? c.primarySoft : c.surface, borderColor: isCurrent || isPassed ? c.primary : c.border }]} />
+                              {!isDestination ? <View style={[styles.timelineLine, { backgroundColor: isPassed ? c.primary : c.border }]} /> : null}
+                            </View>
+                            <View style={styles.timelineContent}>
+                              <AccessibleText variant={isCurrent ? 'subtitle' : 'caption'} weight={isCurrent ? 'extrabold' : 'bold'} color={isCurrent ? c.primary : c.textSecondary}>
+                                {item.stop.name}
+                              </AccessibleText>
+                              {isCurrent ? (
+                                <View style={styles.metaRow}>
+                                  <View style={styles.meta}><Icon icon={MapPin} size={14} color={c.textSecondary} /><AccessibleText variant="caption" weight="bold" color={c.textSecondary}>{formatDistance(progress.toNext)}</AccessibleText></View>
+                                  {minutesToNext ? <View style={styles.meta}><Icon icon={Clock3} size={14} color={c.textSecondary} /><AccessibleText variant="caption" weight="bold" color={c.textSecondary}>{t('tracking.mins', { count: minutesToNext })}</AccessibleText></View> : null}
+                                </View>
+                              ) : null}
+                            </View>
+                          </View>
+                        );
+                      })}
                     </View>
                     {nextStopAddress ? <AccessibleText variant="caption" color={c.textSecondary} style={styles.referenceText}>{nextStopAddress}</AccessibleText> : null}
                     {nextStopPois.length > 0 ? <AccessibleText variant="caption" color={c.textSecondary} style={styles.referenceText}>{t('tracking.nearbyReference', { name: nextStopPois[0].name ?? nextStopPois[0].category })}</AccessibleText> : null}
@@ -439,9 +641,27 @@ export function TrackingScreen({ route, navigation }: Props) {
                 <View style={styles.flex}><AccessibleText variant="label" color={c.success} style={styles.eyebrow}>{t('tracking.destination')}</AccessibleText><AccessibleText variant="subtitle" weight="extrabold" color={c.successDark}>{destinationName}</AccessibleText></View>
               </Card>
 
+
+
               <View style={styles.actions}>
-                <View style={styles.flex}><AccessibleButton label={t('tracking.repeat')} icon={Repeat} onPress={repeat} disabled={!progress} accessibilityHint={t('tracking.repeatHint')} /></View>
-                <View style={styles.flex}><AccessibleButton label={t('tracking.cancel')} icon={X} variant="dangerSoft" onPress={cancelTrip} accessibilityHint={t('tracking.cancelHint')} /></View>
+                <View style={styles.flex}>
+                  <AccessibleButton
+                    label={t('tracking.repeat')}
+                    icon={Repeat}
+                    onPress={repeat}
+                    disabled={!progress}
+                    accessibilityHint={t('tracking.repeatHint')}
+                  />
+                </View>
+                <View style={styles.flex}>
+                  <AccessibleButton
+                    label={t('tracking.cancel')}
+                    icon={X}
+                    variant="dangerSoft"
+                    onPress={cancelTrip}
+                    accessibilityHint={t('tracking.cancelHint')}
+                  />
+                </View>
               </View>
             </ScrollView>
           </RouteBottomSheet>
@@ -457,14 +677,21 @@ const styles = StyleSheet.create({
   mapArea: { flex: 1, minHeight: 120 },
   flex: { flex: 1 },
   pad: { padding: 20, gap: 14 },
-  sheetContent: { padding: 16, gap: 14, paddingBottom: 28 },
+  sheetScroll: { flex: 1, minHeight: 0 },
+  sheetContent: { padding: 16, gap: 14, paddingBottom: 32 },
   suggestionCard: { padding: 14, borderWidth: 2 },
   nearbyLinesWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   lineChip: { minWidth: 92, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 10, borderWidth: 1, gap: 1 },
   referenceText: { marginTop: 6 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 12 },
   liveDot: { width: 8, height: 8, borderRadius: 4 },
-  nextCard: { padding: 16, borderWidth: 2 },
+  timelineCard: { padding: 16, borderWidth: 1 },
+  timeline: { marginTop: 12 },
+  timelineRow: { flexDirection: 'row', minHeight: 42 },
+  timelineRail: { width: 24, alignItems: 'center' },
+  timelineDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, marginTop: 2, zIndex: 1 },
+  timelineLine: { width: 2, flex: 1, minHeight: 24 },
+  timelineContent: { flex: 1, paddingLeft: 8, paddingBottom: 10 },
   eyebrow: { letterSpacing: 0.7 },
   nextName: { marginTop: 4 },
   metaRow: { flexDirection: 'row', gap: 16, marginTop: 8 },

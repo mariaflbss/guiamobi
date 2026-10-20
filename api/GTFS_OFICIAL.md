@@ -2,6 +2,11 @@
 
 O GuiaMobi usa o feed GTFS oficial de São José dos Campos como fonte de transporte público.
 
+Fonte:
+https://sjc-infobus.engdb.com.br/infoponto/google_transit.zip
+
+O arquivo `data/google_transit.zip` é uma cópia do feed utilizado nesta versão.
+
 ## Importação
 
 Na pasta `api`:

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
@@ -16,7 +16,8 @@ import { useAccessibility } from '../contexts/AccessibilityContext';
 import { useRouteDraft } from '../contexts/RouteDraftContext';
 import { useFavorites } from '../hooks/useFavorites';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
-import { FavoritePlace } from '../types/favorites';
+import { FavoriteLine, FavoritePlace } from '../types/favorites';
+import { routesService } from '../services/api/routesService';
 import { AppStackParamList } from '../navigation/types';
 
 type Nav = NativeStackNavigationProp<AppStackParamList>;
@@ -30,9 +31,10 @@ export function FavoritesScreen() {
   const { t } = useTranslation();
   const { theme, announce } = useAccessibility();
   const navigation = useNavigation<Nav>();
-  const { favorites, favoriteLines, removeFavorite } = useFavorites();
+  const { favorites, favoriteLines, removeFavorite, addFavoriteLine } = useFavorites();
   const draft = useRouteDraft();
   const [selected, setSelected] = useState<FavoritePlace | null>(null);
+  const [openingLineId, setOpeningLineId] = useState<string | null>(null);
   useStatusBarStyle('light');
   const c = theme.colors;
 
@@ -51,6 +53,46 @@ export function FavoritesScreen() {
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => removeFavorite(favorite.id) },
     ]);
+  }
+
+  async function openFavoriteLine(line: FavoriteLine) {
+    if (openingLineId) return;
+    setOpeningLineId(line.lineId);
+    try {
+      // Favoritos antigos podem ter sido gravados com o ID da fixture anterior
+      // ou de uma fonte que já não está ativa. Primeiro tentamos o ID salvo;
+      // se ele não existir mais, resolvemos a linha pela combinação exibida
+      // código + nome e atualizamos o favorito para o ID oficial atual.
+      await routesService.getLineDetail(line.lineId);
+      navigation.navigate('RouteDetail', { lineId: line.lineId, lineCode: line.code, lineName: line.name });
+      return;
+    } catch {
+      try {
+        const candidates = await routesService.searchLines(line.code);
+        const normalizedCode = line.code.trim().toLocaleLowerCase();
+        const normalizedName = line.name.trim().toLocaleLowerCase();
+        const resolved = candidates.find((item) =>
+          item.lineCode.trim().toLocaleLowerCase() === normalizedCode &&
+          item.lineName.trim().toLocaleLowerCase() === normalizedName
+        ) ?? candidates.find((item) => item.lineCode.trim().toLocaleLowerCase() === normalizedCode);
+
+        if (!resolved) {
+          Alert.alert(t('favorites.lineNotFoundTitle'), t('favorites.lineNotFoundMessage', { code: line.code }));
+          return;
+        }
+
+        await addFavoriteLine({ lineId: resolved.lineId, code: resolved.lineCode, name: resolved.lineName });
+        navigation.navigate('RouteDetail', {
+          lineId: resolved.lineId,
+          lineCode: resolved.lineCode,
+          lineName: resolved.lineName,
+        });
+      } catch {
+        Alert.alert(t('favorites.lineLoadErrorTitle'), t('favorites.lineLoadErrorMessage'));
+      }
+    } finally {
+      setOpeningLineId(null);
+    }
   }
 
   return (
@@ -112,17 +154,23 @@ export function FavoritesScreen() {
         ) : (
           favoriteLines.map((line) => (
             <Pressable
-              key={line.lineId}
-              onPress={() => navigation.navigate('RouteDetail', { lineId: line.lineId, lineCode: line.code, lineName: line.name })}
+              key={`${line.lineId}-${line.code}`}
+              onPress={() => void openFavoriteLine(line)}
+              disabled={openingLineId !== null}
               accessibilityRole="button"
               accessibilityLabel={`${line.code}, ${line.name}`}
+              accessibilityHint={t('favorites.openLineHint')}
             >
               <Card style={styles.row}>
                 <RouteBadge code={line.code} />
                 <AccessibleText variant="subtitle" weight="extrabold" style={styles.flex}>
                   {line.name}
                 </AccessibleText>
-                <Icon icon={ChevronRight} size={20} color={c.textSecondary} />
+                {openingLineId === line.lineId ? (
+                  <ActivityIndicator size="small" color={c.primary} />
+                ) : (
+                  <Icon icon={ChevronRight} size={20} color={c.textSecondary} />
+                )}
               </Card>
             </Pressable>
           ))

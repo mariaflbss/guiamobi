@@ -4,9 +4,9 @@ import { Coordinates } from '../types/location';
 import { RouteOption } from '../types/routes';
 
 /**
- * Busca as opções de ônibus entre origem e destino na API. Quando não há
- * resultado, consulta se o servidor já tem dados oficiais de linhas (GTFS)
- * para explicar o motivo ao usuário sem fingir rotas.
+ * Busca as opções de ônibus entre origem e destino na API.
+ * Cada execução possui um AbortController para que uma busca antiga nunca
+ * continue ocupando a conexão depois que origem/destino mudarem ou a tela sair.
  */
 export function useRouteOptions(origin: Coordinates | null, destination: Coordinates | null) {
   const [options, setOptions] = useState<RouteOption[]>([]);
@@ -19,21 +19,26 @@ export function useRouteOptions(origin: Coordinates | null, destination: Coordin
   const destLat = destination?.latitude;
   const destLng = destination?.longitude;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     if (originLat === undefined || originLng === undefined || destLat === undefined || destLng === undefined) {
       setIsLoading(false);
       return;
     }
+
     setIsLoading(true);
     setErrorMessage(null);
+
     try {
       const results = await routesService.searchRoutes(
         { latitude: originLat, longitude: originLng },
-        { latitude: destLat, longitude: destLng }
+        { latitude: destLat, longitude: destLng },
+        signal,
       );
+
       const sorted = [...results].sort((a, b) => {
         const durationDiff = a.durationMinutes - b.durationMinutes;
         if (durationDiff !== 0) return durationDiff;
+
         const toMinutes = (value?: string | null) => {
           if (!value) return Number.POSITIVE_INFINITY;
           const [h, m] = value.split(':').map(Number);
@@ -44,26 +49,37 @@ export function useRouteOptions(origin: Coordinates | null, destination: Coordin
           if (departure < current) departure += 24 * 60;
           return departure - current;
         };
+
         return toMinutes(a.nextDeparture) - toMinutes(b.nextDeparture);
       });
+
       setOptions(sorted);
       if (results.length === 0) {
         const status = await routesService.getStatus().catch(() => null);
+        if (signal?.aborted) return;
         setHasTransitData(status ? status.hasData : true);
       } else {
         setHasTransitData(true);
       }
     } catch (error) {
+      if (signal?.aborted || (error && typeof error === 'object' && 'name' in error && (error as { name?: string }).name === 'AbortError')) {
+        return;
+      }
       setOptions([]);
-      setErrorMessage(error instanceof Error ? error.message : 'error');
+      const message = error instanceof Error ? error.message : 'error';
+      setErrorMessage(message === 'offline' ? 'offline' : message);
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) setIsLoading(false);
     }
   }, [originLat, originLng, destLat, destLng]);
 
   useEffect(() => {
-    load();
+    const controller = new AbortController();
+    load(controller.signal);
+    return () => controller.abort();
   }, [load]);
 
-  return { options, isLoading, errorMessage, hasTransitData, reload: load };
+  const reload = useCallback(() => load(), [load]);
+
+  return { options, isLoading, errorMessage, hasTransitData, reload };
 }

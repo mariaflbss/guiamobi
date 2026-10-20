@@ -1,12 +1,30 @@
 import * as Location from 'expo-location';
 import { Coordinates, PermissionStatus } from '../../types/location';
+import { GpsSensitivity } from '../../types/settings';
 
 /**
  * Serviço responsável por toda a interação com o GPS do dispositivo.
  * Mantém o acesso ao expo-location isolado nesta camada, seguindo o
  * fluxo Tela -> Hook -> Service -> recurso nativo.
  */
+let gpsSensitivity: GpsSensitivity = 'equilibrada';
+
+const ACCURACY_BY_SENSITIVITY: Record<GpsSensitivity, Location.Accuracy> = {
+  economica: Location.Accuracy.Balanced,
+  equilibrada: Location.Accuracy.High,
+  precisa: Location.Accuracy.BestForNavigation,
+};
+
 export const locationService = {
+  /** Atualiza a precisão usada por novas leituras e pelo acompanhamento do GPS. */
+  setGpsSensitivity(sensitivity: GpsSensitivity) {
+    gpsSensitivity = sensitivity;
+  },
+
+  getGpsSensitivity(): GpsSensitivity {
+    return gpsSensitivity;
+  },
+
   /**
    * Solicita permissão de localização ao usuário.
    * Retorna o status para que a tela trate adequadamente o caso de negação
@@ -28,7 +46,7 @@ export const locationService = {
    */
   async getCurrentPosition(): Promise<Coordinates> {
     const position = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: ACCURACY_BY_SENSITIVITY[gpsSensitivity],
     });
 
     return {
@@ -43,7 +61,11 @@ export const locationService = {
    */
   async watchPosition(onChange: (coordinates: Coordinates) => void): Promise<() => void> {
     const subscription = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 15, timeInterval: 4000 },
+      {
+        accuracy: ACCURACY_BY_SENSITIVITY[gpsSensitivity],
+        distanceInterval: gpsSensitivity === 'economica' ? 30 : 15,
+        timeInterval: gpsSensitivity === 'precisa' ? 3000 : 4000,
+      },
       (position) => onChange({ latitude: position.coords.latitude, longitude: position.coords.longitude })
     );
     return () => subscription.remove();

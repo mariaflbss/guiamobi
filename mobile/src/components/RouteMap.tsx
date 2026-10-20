@@ -119,9 +119,7 @@ export function RouteMap({
             dentist: t('routeDetail.poi.dentist'),
             bank: t('routeDetail.poi.bank'),
             atm: t('routeDetail.poi.atm'),
-            supermarket: t('routeDetail.poi.supermarket'),
             square: t('routeDetail.poi.square'),
-            school: t('routeDetail.poi.school'),
           },
         },
       })
@@ -140,7 +138,7 @@ export function RouteMap({
     if (!mapData || !speechPrefetchSignature) return;
     const data = mapData;
     const texts: string[] = [];
-    for (const poi of data.pois.slice(0, 16)) {
+    for (const poi of data.pois.slice(0, 6)) {
       const category = data.labels.poi[poi.category];
       texts.push(`${poi.name || data.labels.unnamedPoi}. ${category || data.labels.unnamedPoi}`);
     }
@@ -208,8 +206,8 @@ export function RouteMap({
   }, [readyCount, mapType, run]);
 
   return (
-    <View style={height == null ? styles.flexContainer : undefined}>
-    <View style={[styles.container, height == null ? styles.flexContainer : { height }]} accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
+    <View style={height == null ? styles.flexContainer : { width: '100%', height }}>
+    <View style={[styles.container, height == null ? styles.flexContainer : { height, width: '100%' }]} accessible accessibilityRole="image" accessibilityLabel={accessibilityLabel}>
       {hasStops ? (
         <WebView
           key={reloadKey}
@@ -261,7 +259,7 @@ export function RouteMap({
         ) : null}
         {boardingIndex != null && boardingIndex >= 0 ? (
           <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.origin, borderColor: MAP_MARKER_COLORS.originRing, borderWidth: 2.5 }]} />
+            <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.origin, borderColor: '#FFFFFF', borderWidth: 2.5 }]} />
             <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendOrigin')}</AccessibleText>
           </View>
         ) : null}
@@ -269,12 +267,6 @@ export function RouteMap({
           <View style={styles.legendRow}>
             <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.destination, borderColor: '#FFFFFF' }]} />
             <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendDestination')}</AccessibleText>
-          </View>
-        ) : null}
-        {pois && pois.length > 0 ? (
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: MAP_MARKER_COLORS.poi, borderColor: '#FFFFFF' }]} />
-            <AccessibleText variant="caption" weight="bold" style={styles.legendText}>{t('routeDetail.legendPoi')}</AccessibleText>
           </View>
         ) : null}
         {favorites && favorites.length > 0 ? (

@@ -78,16 +78,7 @@ function checkUserLimit(userId: string) {
 }
 
 // Executa as chamadas ao Nominatim uma de cada vez, respeitando o intervalo mínimo
-// Busca de endereço (ação do usuário) e geocodificação reversa (segundo plano da viagem)
-// dividem a mesma fila serial. A reversa tem limite menor para nunca fazer uma nova
-// busca esperar atrás de um acúmulo de consultas da viagem anterior.
-const MAX_PENDING_SEARCH = 6;
-const MAX_PENDING_REVERSE = 2;
-let pending = 0;
-
-function enqueue<T>(task: () => Promise<T>, maxPending = MAX_PENDING_SEARCH): Promise<T> {
-  if (pending >= maxPending) return Promise.reject(new Error('fila de consultas cheia'));
-  pending += 1;
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
   const run = queue.then(async () => {
     const wait = lastRequestAt + MIN_INTERVAL_MS - Date.now();
     if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
@@ -95,7 +86,7 @@ function enqueue<T>(task: () => Promise<T>, maxPending = MAX_PENDING_SEARCH): Pr
     return task();
   });
   queue = run.catch(() => undefined);
-  return run.finally(() => { pending -= 1; });
+  return run;
 }
 
 function toPlace(item: NominatimItem): PlaceResult {
@@ -160,7 +151,7 @@ export const geocodeService = {
           clearTimeout(timer);
         }
       }).catch((error) => {
-        console.info('[Geocode] Busca opcional indisponível:', error instanceof Error ? error.message : error);
+        console.error('Falha na busca de endereços:', error);
         throw new AppError('O serviço de busca de endereços está indisponível agora. Tente novamente em instantes.', 502);
       });
 
@@ -226,8 +217,8 @@ export const geocodeService = {
       } finally {
         clearTimeout(timer);
       }
-    }, MAX_PENDING_REVERSE).catch((error) => {
-      console.info('[Geocode] Reversa opcional indisponível:', error instanceof Error ? error.message : error);
+    }).catch((error) => {
+      console.error('Falha na geocodificação reversa:', error);
       throw new AppError('O serviço de endereços está indisponível agora. Tente novamente em instantes.', 502);
     });
 

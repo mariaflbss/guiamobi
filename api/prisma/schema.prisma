@@ -22,8 +22,22 @@ model User {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   passwordResetTokens PasswordResetToken[]
+  presence          UserPresence?
 
   @@map("users")
+}
+
+
+model UserPresence {
+  id        String   @id @default(uuid())
+  userId    String   @unique @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  latitude  Float
+  longitude Float
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([updatedAt])
+  @@map("user_presence")
 }
 
 // Token de recuperação de senha (US01 - "Recuperação de senha por e-mail")

@@ -23,7 +23,7 @@ export interface MapFavorite {
 
 export interface MapPoi {
   id: string;
-  category: 'hospital' | 'clinic' | 'pharmacy' | 'dentist' | 'bank' | 'atm' | 'supermarket' | 'square' | 'school';
+  category: 'hospital' | 'clinic' | 'pharmacy' | 'dentist' | 'bank' | 'atm' | 'square';
   name: string | null;
   latitude: number;
   longitude: number;
@@ -40,13 +40,17 @@ export interface MapPoi {
  *  - demais paradas = cinza neutro (nunca confundir com os três acima)
  */
 export const MAP_MARKER_COLORS = {
-  you: '#0B2E6B',
-  origin: '#7CC4FA',
-  originRing: '#0F5FA8',
-  destination: '#16A34A',
-  stop: '#64748B',
-  poi: '#B45309',
-  favorite: '#7C3AED',
+  // Cores com contraste suficiente para permanecerem legíveis no mapa sem
+  // voltar ao aspecto excessivamente vibrante. A borda branca separa os
+  // marcadores prioritários do mapa base; as paradas são a exceção e usam
+  // apenas tons de cinza para reduzir ruído visual.
+  you: '#1852A4',
+  origin: '#2F6FB6',
+  originRing: '#2F6FB6',
+  destination: '#15803D',
+  stop: '#6B7280',
+  poi: '#F97316',
+  favorite: '#6D28D9',
 } as const;
 
 export interface MapColors {

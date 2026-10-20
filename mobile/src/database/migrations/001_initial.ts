@@ -84,4 +84,105 @@ export async function runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
       PRAGMA user_version = 3;
     `);
   }
+
+  if (version < 4) {
+    // Regra US07: a mesma conta não pode cadastrar o mesmo endereço na mesma
+    // categoria mais de uma vez, mesmo usando apelidos diferentes.
+    await db.execAsync(`
+      ALTER TABLE favorites ADD COLUMN address_normalized TEXT NOT NULL DEFAULT '';
+
+      UPDATE favorites
+      SET address_normalized = lower(trim(replace(replace(replace(replace(address, '.', ' '), ',', ' '), '-', ' '), '  ', ' ')));
+
+      -- Remove duplicidades antigas antes de criar a restrição. Mantém o
+      -- registro mais antigo de cada combinação válida.
+      DELETE FROM favorites
+      WHERE user_id IS NOT NULL
+        AND rowid NOT IN (
+          SELECT MIN(rowid)
+          FROM favorites
+          WHERE user_id IS NOT NULL
+          GROUP BY user_id, kind, address_normalized
+        );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_favorites_user_kind_address
+        ON favorites(user_id, kind, address_normalized);
+
+      PRAGMA user_version = 4;
+    `);
+  }
+
+
+  if (version < 5) {
+    // Reforça a regra de unicidade usando exatamente a mesma normalização
+    // aplicada no cadastro. A versão 4 usava uma normalização SQL que não
+    // removia acentos e podia deixar passar endereços equivalentes.
+    const rows = await db.getAllAsync<{ rowid: number; user_id: string | null; kind: string; address: string }>(
+      'SELECT rowid, user_id, kind, address FROM favorites'
+    );
+
+    const seen = new Set<string>();
+    const duplicateRowIds: number[] = [];
+
+    for (const row of rows) {
+      const normalized = normalizeFavoriteAddress(row.address);
+      await db.runAsync(
+        'UPDATE favorites SET address_normalized = ? WHERE rowid = ?',
+        [normalized, row.rowid]
+      );
+
+      if (!row.user_id) continue;
+      const key = `${row.user_id}\u0000${row.kind}\u0000${normalized}`;
+      if (seen.has(key)) duplicateRowIds.push(row.rowid);
+      else seen.add(key);
+    }
+
+    for (const rowid of duplicateRowIds) {
+      await db.runAsync('DELETE FROM favorites WHERE rowid = ?', [rowid]);
+    }
+
+    await db.execAsync(`
+      DROP INDEX IF EXISTS uq_favorites_user_kind_address;
+      CREATE UNIQUE INDEX uq_favorites_user_kind_address
+        ON favorites(user_id, kind, address_normalized);
+      PRAGMA user_version = 5;
+    `);
+  }
+
+  if (version < 6) {
+    // Cache persistente de rotas e horários já consultados (US16).
+    // O payload guarda também paradas e traçado retornados pela API, permitindo
+    // reabrir a rota e o mapa sem uma nova requisição imediata.
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS route_cache (
+        user_id TEXT NOT NULL,
+        cache_key TEXT NOT NULL,
+        origin_label TEXT NOT NULL,
+        origin_latitude REAL NOT NULL,
+        origin_longitude REAL NOT NULL,
+        destination_label TEXT NOT NULL,
+        destination_latitude REAL NOT NULL,
+        destination_longitude REAL NOT NULL,
+        payload_json TEXT NOT NULL,
+        cached_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, cache_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_route_cache_user_cached_at
+        ON route_cache(user_id, cached_at DESC);
+
+      PRAGMA user_version = 6;
+    `);
+  }
+}
+
+
+function normalizeFavoriteAddress(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
 }

@@ -72,7 +72,8 @@ export function AddFavoriteScreen({ navigation }: Props) {
       navigation.goBack();
     } catch (error) {
       if (error instanceof Error && error.message === 'FAVORITE_DUPLICATE') {
-        return fail(t('favorites.duplicateFavorite'));
+        const favoriteNickname = (error as Error & { favoriteNickname?: string }).favoriteNickname;
+        return fail(t('favorites.duplicateFavoriteNamed', { nickname: favoriteNickname ?? '' }));
       }
       fail(t('favorites.saveError'));
     }

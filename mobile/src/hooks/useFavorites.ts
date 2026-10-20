@@ -45,7 +45,7 @@ export function useFavorites() {
   });
 
   const removeLineMutation = useMutation({
-    mutationFn: (lineId: string) => favoritesRepository.removeLine(lineId),
+    mutationFn: (line: FavoriteLine) => favoritesRepository.removeLine(line),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: linesQueryKey }),
   });
 

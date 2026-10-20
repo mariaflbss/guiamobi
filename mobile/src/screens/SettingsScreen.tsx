@@ -16,7 +16,7 @@ import { SettingCard, SettingSwitchRow } from '../components/SettingCard';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { useAuth } from '../hooks/useAuth';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
-import { FontSize, SpeechRate, SupportedLanguage } from '../types/settings';
+import { FontSize, GpsSensitivity, SpeechRate, SupportedLanguage } from '../types/settings';
 import { AppStackParamList } from '../navigation/types';
 import { profilePhotoService } from '../services/storage/profilePhotoService';
 
@@ -133,6 +133,31 @@ export function SettingsScreen() {
         description={t('settings.darkModeDescription')}
         value={settings.darkMode}
         onValueChange={(darkMode) => updateSettings({ darkMode })}
+      />
+
+      <SectionTitle title={t('settings.gpsSection')} />
+      <SettingCard glyph="GPS" title={t('settings.gpsSensitivity')}>
+        <AccessibleText variant="caption" color={c.textSecondary}>
+          {t('settings.gpsSensitivityDescription')}
+        </AccessibleText>
+        <SelectableChipGroup<GpsSensitivity>
+          accessibilityLabel={t('settings.gpsSensitivity')}
+          selected={settings.gpsSensitivity}
+          onSelect={(gpsSensitivity) => updateSettings({ gpsSensitivity })}
+          options={[
+            { value: 'economica', label: t('settings.gpsEconomic') },
+            { value: 'equilibrada', label: t('settings.gpsBalanced') },
+            { value: 'precisa', label: t('settings.gpsPrecise') },
+          ]}
+        />
+      </SettingCard>
+      <SettingSwitchRow
+        icon={Lightbulb}
+        tone="warning"
+        title={t('settings.ambientAdaptation')}
+        description={t('settings.ambientAdaptationDescription')}
+        value={settings.ambientAdaptation}
+        onValueChange={(ambientAdaptation) => updateSettings({ ambientAdaptation })}
       />
 
       <SectionTitle title={t('settings.audioSection')} />

@@ -18,6 +18,7 @@
  * substituídos por completo a cada importação, como é o padrão para uma
  * publicação nova de um feed GTFS inteiro.
  */
+import 'dotenv/config';
 import AdmZip from 'adm-zip';
 import { parse } from 'csv-parse/sync';
 import { randomUUID } from 'crypto';

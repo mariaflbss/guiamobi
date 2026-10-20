@@ -1,4 +1,6 @@
 import { httpClient } from './httpClient';
+import { connectivityService } from '../connectivity/connectivityService';
+import { routeCacheRepository } from '../../database/repositories/routeCacheRepository';
 import { Coordinates } from '../../types/location';
 import {
   LineDetail,
@@ -25,10 +27,22 @@ function routeCacheKey(origin: Coordinates, destination: Coordinates): string {
  * rotas").
  */
 export const routesService = {
-  async searchRoutes(origin: Coordinates, destination: Coordinates): Promise<RouteOption[]> {
+  async searchRoutes(origin: Coordinates, destination: Coordinates, signal?: AbortSignal): Promise<RouteOption[]> {
     const key = routeCacheKey(origin, destination);
     const cached = routeCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.options;
+
+    const isOnline = await connectivityService.isConnected().catch(() => true);
+    if (!isOnline) {
+      const offline = await routeCacheRepository.find(
+        origin.latitude, origin.longitude, destination.latitude, destination.longitude,
+      );
+      if (offline) {
+        routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, options: offline.options });
+        return offline.options;
+      }
+      throw new Error('offline');
+    }
 
     const params = new URLSearchParams({
       originLat: String(origin.latitude),
@@ -37,12 +51,68 @@ export const routesService = {
       destinationLng: String(destination.longitude),
     });
 
-    const { options } = await httpClient<{ options: RouteOption[] }>(`/routes/search?${params.toString()}`, {
-      authenticated: true,
-    });
+    try {
+      const { options } = await httpClient<{ options: RouteOption[] }>(`/routes/search?${params.toString()}`, {
+        authenticated: true,
+        signal,
+      });
 
-    routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, options });
-    return options;
+      routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, options });
+      // Aguarda a persistência antes de concluir a busca. Assim, se o usuário
+      // desligar a conexão logo após visualizar os resultados, a rota já estará
+      // disponível no SQLite para o modo offline. Falha de persistência não
+      // impede a exibição da rota online.
+      await routeCacheRepository.save({
+        originLabel: '',
+        originLatitude: origin.latitude,
+        originLongitude: origin.longitude,
+        destinationLabel: '',
+        destinationLatitude: destination.latitude,
+        destinationLongitude: destination.longitude,
+        options,
+      }).catch(() => undefined);
+      return options;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      const offline = await routeCacheRepository.find(
+        origin.latitude, origin.longitude, destination.latitude, destination.longitude,
+      );
+      if (offline) {
+        routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, options: offline.options });
+        return offline.options;
+      }
+      throw error;
+    }
+  },
+
+  async saveOfflineRoute(
+    origin: { label?: string; latitude: number; longitude: number },
+    destination: { label?: string; latitude: number; longitude: number },
+    options: RouteOption[],
+  ): Promise<void> {
+    const existing = await routeCacheRepository.find(
+      origin.latitude, origin.longitude, destination.latitude, destination.longitude,
+    );
+    const merged = [...(existing?.options ?? [])];
+    for (const option of options) {
+      const index = merged.findIndex((item) =>
+        item.lineId === option.lineId &&
+        item.boardingStop.id === option.boardingStop.id &&
+        item.alightingStop.id === option.alightingStop.id,
+      );
+      if (index >= 0) merged[index] = option;
+      else merged.push(option);
+    }
+
+    await routeCacheRepository.save({
+      originLabel: origin.label || existing?.originLabel || '',
+      originLatitude: origin.latitude,
+      originLongitude: origin.longitude,
+      destinationLabel: destination.label || existing?.destinationLabel || '',
+      destinationLatitude: destination.latitude,
+      destinationLongitude: destination.longitude,
+      options: merged,
+    });
   },
 
   async getLineDetail(lineId: string): Promise<LineDetail> {
@@ -74,10 +144,10 @@ export const routesService = {
   },
 
   /** Posições reais de veículos da linha. `available:false` = a fonte de tempo real não está configurada (nunca há posição inventada). */
-  async getVehiclePositions(lineId: string): Promise<{ available: boolean; vehicles: VehiclePositionItem[] }> {
+  async getVehiclePositions(lineId: string, signal?: AbortSignal): Promise<{ available: boolean; vehicles: VehiclePositionItem[] }> {
     return httpClient<{ available: boolean; vehicles: VehiclePositionItem[] }>(
       `/routes/lines/${lineId}/vehicle-positions`,
-      { authenticated: true }
+      { authenticated: true, signal }
     );
   },
 

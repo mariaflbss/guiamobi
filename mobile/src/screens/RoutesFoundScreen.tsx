@@ -113,7 +113,7 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
         </View>
       ) : null}
 
-      {!isLoading && errorMessage ? <InlineMessage message={errorMessage} tone="error" /> : null}
+      {!isLoading && errorMessage ? <InlineMessage message={errorMessage === 'offline' ? t('routes.offlineNoCache') : errorMessage} tone="error" /> : null}
 
       {!isLoading && !errorMessage && options.length === 0 ? (
         <InlineMessage message={hasTransitData ? t('routes.notFound') : t('routes.noTransitData')} tone="warning" />

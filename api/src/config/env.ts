@@ -26,6 +26,7 @@ const envSchema = z.object({
   GEOCODING_CONTACT: z.string().optional().default(''),
   // Overpass API (OpenStreetMap) para pontos de referência da US09. Gratuita; respeite a política de uso.
   OVERPASS_URL: z.string().optional().default('https://overpass-api.de/api/interpreter'),
+  OVERPASS_FALLBACK_URLS: z.string().optional().default('https://overpass.private.coffee/api/interpreter,https://lz4.overpass-api.de/api/interpreter,https://z.overpass-api.de/api/interpreter,https://maps.mail.ru/osm/tools/overpass/api/interpreter'),
   // Origem dos dados de linhas/paradas exibida em /transit/status
   // (ex.: "seed" para os dados de demonstração, "gtfs" para dados oficiais).
   TRANSIT_DATA_SOURCE: z.string().optional().default('seed'),

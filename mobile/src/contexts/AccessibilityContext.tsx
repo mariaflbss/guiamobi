@@ -6,6 +6,8 @@ import { buildTheme, Theme } from '../theme/theme';
 import i18n from '../locales/i18n';
 import { speechService } from '../services/speech/speechService';
 import { hapticsService } from '../services/haptics/hapticsService';
+import { locationService } from '../services/location/locationService';
+import { ambientLightService, AmbientMode } from '../services/environment/ambientLightService';
 import {
   feedbackModeUsesHaptics,
   feedbackModeUsesVoice,
@@ -19,6 +21,8 @@ const DEFAULT_SETTINGS: AccessibilitySettings = {
   feedbackMode: 'voz_vibracao',
   speechRate: 'normal',
   simpleMode: false,
+  gpsSensitivity: 'equilibrada',
+  ambientAdaptation: true,
 };
 
 type HapticKind = 'light' | 'success' | 'warning' | 'error';
@@ -56,6 +60,7 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
   const [settings, setSettings] = useState<AccessibilitySettings>(DEFAULT_SETTINGS);
   const [language, setLanguageState] = useState<SupportedLanguage>('pt');
   const [isLoading, setIsLoading] = useState(true);
+  const [ambientMode, setAmbientMode] = useState<AmbientMode>('normal');
   // Mantém sempre o valor mais recente, evitando que duas alterações seguidas
   // (ex.: dois switches) sobrescrevam uma à outra.
   const settingsRef = useRef<AccessibilitySettings>(DEFAULT_SETTINGS);
@@ -63,6 +68,32 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
   useEffect(() => {
     loadPersistedPreferences();
   }, []);
+
+  useEffect(() => {
+    locationService.setGpsSensitivity(settings.gpsSensitivity);
+  }, [settings.gpsSensitivity]);
+
+  useEffect(() => {
+    if (!settings.ambientAdaptation) {
+      setAmbientMode('normal');
+      return;
+    }
+
+    let active = true;
+    let unsubscribe = () => {};
+
+    ambientLightService.isAvailable().then((available) => {
+      if (!active || !available) return;
+      unsubscribe = ambientLightService.subscribe((mode) => {
+        if (active) setAmbientMode(mode);
+      });
+    }).catch(() => {});
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [settings.ambientAdaptation]);
 
   async function loadPersistedPreferences() {
     try {
@@ -156,9 +187,12 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
     [language]
   );
 
+  const effectiveDarkMode = settings.darkMode || (settings.ambientAdaptation && ambientMode === 'dark');
+  const effectiveHighContrast = settings.highContrast || (settings.ambientAdaptation && ambientMode === 'highContrast');
+
   const theme = useMemo(
-    () => buildTheme(settings.darkMode, settings.highContrast, settings.fontSize),
-    [settings.darkMode, settings.highContrast, settings.fontSize]
+    () => buildTheme(effectiveDarkMode, effectiveHighContrast, settings.fontSize),
+    [effectiveDarkMode, effectiveHighContrast, settings.fontSize]
   );
 
   const value = useMemo(

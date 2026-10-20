@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
-export const POI_CATEGORIES = ['hospital', 'clinic', 'bank', 'atm', 'square', 'pharmacy', 'dentist', 'supermarket', 'school'] as const;
+export const POI_CATEGORIES = ['hospital', 'clinic', 'bank', 'atm', 'square', 'pharmacy', 'dentist'] as const;
 export type PoiCategory = (typeof POI_CATEGORIES)[number];
 
 export const poiQuerySchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lng: z.coerce.number().min(-180).max(180),
-  radius: z.coerce.number().int().min(50).max(1000).optional().default(500),
+  radius: z.coerce.number().int().min(50).max(1500).optional().default(500),
   // lista separada por vírgula, ex.: "hospital,bank"; vazio = todas as categorias
   categories: z
     .string()

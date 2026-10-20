@@ -1,4 +1,5 @@
 import React from 'react';
+import { View, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AppTabParamList, AppStackParamList } from './types';
@@ -20,6 +21,7 @@ import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
 import { TutorialScreen } from '../screens/TutorialScreen';
 import { useAuth } from '../hooks/useAuth';
+import { OfflineStatusBanner } from '../components/OfflineStatusBanner';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -46,7 +48,9 @@ export function AppNavigator() {
   const { shouldShowTutorial } = useAuth();
 
   return (
-    <Stack.Navigator
+    <View style={styles.root}>
+      <OfflineStatusBanner />
+      <Stack.Navigator
       initialRouteName={shouldShowTutorial ? 'Tutorial' : 'MainTabs'}
       screenOptions={{ headerShown: false, animation: 'fade' }}
     >
@@ -62,6 +66,9 @@ export function AppNavigator() {
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
       <Stack.Screen name="Tutorial" component={TutorialScreen} initialParams={{ firstAccess: shouldShowTutorial }} />
-    </Stack.Navigator>
+      </Stack.Navigator>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({ root: { flex: 1 } });

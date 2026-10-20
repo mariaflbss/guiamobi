@@ -1,2 +1,4 @@
-DROP INDEX IF EXISTS "transit_lines_code_data_source_key";
-CREATE INDEX IF NOT EXISTS "transit_lines_code_data_source_idx" ON "transit_lines"("code", "data_source");
+-- route_short_name may repeat across data sources.
+-- Keep uniqueness scoped by source during the transition; the later migration
+-- removes this constraint completely because GTFS route_id is the identity.
+

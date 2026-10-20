@@ -11,7 +11,9 @@
     "close": "Fechar",
     "skip": "Pular",
     "offlineMessage": "Você está sem conexão com a internet. Algumas funções podem não funcionar.",
-    "to": "para"
+    "to": "para",
+    "offlineShort": "Offline — dados previamente carregados continuam disponíveis quando houver cache.",
+    "onlineMessage": "Conexão com a internet restabelecida."
   },
   "splash": {
     "title": "GuiaMobi",
@@ -129,12 +131,22 @@
     "useAsDestination": "Usar como destino",
     "linesTitle": "Linhas favoritas",
     "noLines": "Você ainda não favoritou nenhuma linha. Abra uma linha e toque no coração.",
+    "deleteLineConfirmTitle": "Excluir linha favorita",
+    "deleteLineConfirmMessage": "Tem certeza de que deseja excluir a linha {{code}} — {{name}}?",
+    "deleteLineLabel": "Excluir linha {{code}}",
+    "deleteLineHint": "Remove esta linha dos favoritos.",
+    "openLineHint": "Abrir detalhes da linha.",
+    "lineNotFoundTitle": "Linha não encontrada",
+    "lineNotFoundMessage": "Não foi possível localizar a linha {{code}} nos dados atuais do transporte.",
+    "lineLoadErrorTitle": "Não foi possível abrir a linha",
+    "lineLoadErrorMessage": "Verifique sua conexão e tente novamente.",
     "deleteConfirmTitle": "Excluir favorito",
     "deleteConfirmMessage": "Tem certeza de que deseja excluir \"{{nickname}}\"?",
     "deleteLabel": "Excluir {{nickname}}",
     "selectHint": "Toque para escolher se é origem ou destino",
     "duplicateFavorite": "Já existe um favorito com essa categoria e esse endereço.",
-    "saveError": "Não foi possível salvar o favorito. Tente novamente."
+    "saveError": "Não foi possível salvar o favorito. Tente novamente.",
+    "duplicateFavoriteNamed": "Favorito já cadastrado. Este endereço já está salvo como \"{{nickname}}\" nesta categoria."
   },
   "history": {
     "title": "Histórico",
@@ -199,7 +211,15 @@
     "helpDescription": "Perguntas frequentes e contato",
     "logout": "Sair da conta",
     "logoutConfirmTitle": "Sair da conta",
-    "logoutConfirmMessage": "Deseja realmente sair? Você precisará entrar de novo para usar o aplicativo."
+    "logoutConfirmMessage": "Deseja realmente sair? Você precisará entrar de novo para usar o aplicativo.",
+    "gpsSection": "Localização",
+    "gpsSensitivity": "Precisão do GPS",
+    "gpsSensitivityDescription": "Escolha o equilíbrio entre precisão e consumo de recursos.",
+    "gpsEconomic": "Econômica",
+    "gpsBalanced": "Equilibrada",
+    "gpsPrecise": "Precisa",
+    "ambientAdaptation": "Adaptação ao ambiente",
+    "ambientAdaptationDescription": "Usa o sensor de luz ambiente quando disponível para ajustar a legibilidade da interface."
   },
   "simpleMode": {
     "title": "Modo Simples",
@@ -314,7 +334,8 @@
     "viewAlternative": "Ver alternativa",
     "distanceMetersValue": "{{count}} m",
     "foundCountLabel": "Rotas encontradas: {{count}}",
-    "foundCountSpoken": "Foram encontradas {{count}} rotas."
+    "foundCountSpoken": "Foram encontradas {{count}} rotas.",
+    "offlineNoCache": "Você está offline e esta rota ainda não foi carregada neste aparelho."
   },
   "routeDetail": {
     "summary": "{{stops}} paradas · {{minutes}} min",
@@ -362,7 +383,10 @@
       "work": "Trabalho",
       "health": "Saúde",
       "other": "Outro"
-    }
+    },
+    "saveOffline": "Salvar rota para uso offline",
+    "offlineSavedButton": "Rota salva offline",
+    "offlineSaved": "Mapa da rota e dados previamente carregados salvos para uso offline."
   },
   "tracking": {
     "title": "Viagem em andamento - Linha {{code}}",
@@ -395,7 +419,17 @@
     "nearbyReference": "Ponto de referência próximo: {{name}}",
     "atStopTitle": "Linhas disponíveis nesta parada",
     "atStopBody": "Você está próximo desta parada. Estas linhas partem daqui e podem ser usadas como opções de rota.",
-    "distanceMetersValue": "{{count}} m"
+    "distanceMetersValue": "{{count}} m",
+    "simulationBadge": "SIMULAÇÃO",
+    "simulationStart": "Simulação",
+    "simulationStartHint": "Inicia a simulação do trajeto para demonstração.",
+    "simulationPause": "Pausar",
+    "simulationPauseHint": "Pausa a simulação mantendo o progresso atual.",
+    "simulationContinue": "Continuar",
+    "simulationContinueHint": "Continua a simulação a partir do ponto em que foi pausada.",
+    "simulationFinish": "Finalizar",
+    "simulationFinishHint": "Finaliza a simulação e volta para a rota.",
+    "highMovementStop": "Alerta adicional: a parada {{name}} apresenta alta movimentação."
   },
   "stopAlert": {
     "title": "Prepare-se!",

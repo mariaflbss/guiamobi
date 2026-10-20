@@ -14,6 +14,7 @@ import { InlineMessage } from '../components/InlineMessage';
 import { RouteOptionCard } from '../components/RouteOptionCard';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { useSearchHistory } from '../hooks/useSearchHistory';
+import { useRouteDraft } from '../contexts/RouteDraftContext';
 import { useRouteOptions } from '../hooks/useRouteOptions';
 import { routesService } from '../services/api/routesService';
 import { LineSearchResult } from '../types/routes';
@@ -31,8 +32,11 @@ export function RoutesTabScreen() {
   const { theme } = useAccessibility();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const { lastRoute } = useSearchHistory();
-  const origin = lastRoute ? { latitude: lastRoute.originLatitude, longitude: lastRoute.originLongitude } : null;
-  const destination = lastRoute ? { latitude: lastRoute.destinationLatitude, longitude: lastRoute.destinationLongitude } : null;
+  const draft = useRouteDraft();
+  const hasCurrentRouteDraft = Boolean(draft.origin && draft.destination);
+  const currentRoute = hasCurrentRouteDraft ? lastRoute : null;
+  const origin = currentRoute ? { latitude: currentRoute.originLatitude, longitude: currentRoute.originLongitude } : null;
+  const destination = currentRoute ? { latitude: currentRoute.destinationLatitude, longitude: currentRoute.destinationLongitude } : null;
   const { options, isLoading, errorMessage, hasTransitData } = useRouteOptions(origin, destination);
   const [lineQuery, setLineQuery] = React.useState('');
   const [lineResults, setLineResults] = React.useState<LineSearchResult[]>([]);
@@ -64,11 +68,11 @@ export function RoutesTabScreen() {
       durationMinutes: option.durationMinutes,
       stopsCount: option.stopsCount,
       nextDeparture: option.nextDeparture,
-      destinationLabel: lastRoute?.destinationLabel,
-      originLatitude: lastRoute?.originLatitude,
-      originLongitude: lastRoute?.originLongitude,
-      destinationLatitude: lastRoute?.destinationLatitude,
-      destinationLongitude: lastRoute?.destinationLongitude,
+      destinationLabel: currentRoute?.destinationLabel,
+      originLatitude: currentRoute?.originLatitude,
+      originLongitude: currentRoute?.originLongitude,
+      destinationLatitude: currentRoute?.destinationLatitude,
+      destinationLongitude: currentRoute?.destinationLongitude,
       shape: option.shape,
       stops: option.stops,
     });
@@ -80,11 +84,11 @@ export function RoutesTabScreen() {
       header={
         <ScreenHeader
           title={t('routes.tabTitle')}
-          subtitle={lastRoute ? `${lastRoute.originLabel} → ${lastRoute.destinationLabel}` : t('routes.tabSubtitle')}
+          subtitle={currentRoute ? `${currentRoute.originLabel} → ${currentRoute.destinationLabel}` : t('routes.tabSubtitle')}
         />
       }
     >
-      {!lastRoute ? (
+      {!currentRoute ? (
         <View style={styles.empty}>
           <InlineMessage message={t('routes.tabEmpty')} tone="info" />
           <AccessibleButton
@@ -131,15 +135,15 @@ export function RoutesTabScreen() {
         ))}
       </View>
 
-      {lastRoute && isLoading ? (
+      {currentRoute && isLoading ? (
         <View style={styles.empty} accessibilityRole="progressbar" accessibilityLabel={t('routes.searching')}>
           <ActivityIndicator size="large" color={c.primary} />
           <AccessibleText color={c.textSecondary}>{t('routes.searching')}</AccessibleText>
         </View>
       ) : null}
 
-      {lastRoute && !isLoading && errorMessage ? <InlineMessage message={errorMessage} tone="error" /> : null}
-      {lastRoute && !isLoading && !errorMessage && options.length === 0 ? (
+      {currentRoute && !isLoading && errorMessage ? <InlineMessage message={errorMessage} tone="error" /> : null}
+      {currentRoute && !isLoading && !errorMessage && options.length === 0 ? (
         <InlineMessage message={hasTransitData ? t('routes.notFound') : t('routes.noTransitData')} tone="warning" />
       ) : null}
 

@@ -16,15 +16,18 @@ export function useVehiclePositions(lineId: string, enabled = true) {
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | null = null;
 
     async function load() {
       try {
-        const result = await routesService.getVehiclePositions(lineId);
+        controller = new AbortController();
+        const result = await routesService.getVehiclePositions(lineId, controller.signal);
         if (cancelled) return;
         setAvailable(result.available);
         setVehicles(result.vehicles);
         if (result.available) timer = setTimeout(load, POLL_INTERVAL_MS);
-      } catch {
+      } catch (error) {
+        if ((error as { name?: string })?.name === 'AbortError') return;
         // Falha de rede: mantém o que já havia e não insiste em loop apertado.
         if (!cancelled) timer = setTimeout(load, POLL_INTERVAL_MS * 2);
       }
@@ -34,6 +37,7 @@ export function useVehiclePositions(lineId: string, enabled = true) {
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+      controller?.abort();
     };
   }, [lineId, enabled]);
 
