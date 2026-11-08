@@ -29,20 +29,31 @@ function routeCacheKey(origin: Coordinates, destination: Coordinates): string {
 export const routesService = {
   async searchRoutes(origin: Coordinates, destination: Coordinates, signal?: AbortSignal): Promise<RouteOption[]> {
     const key = routeCacheKey(origin, destination);
-    const cached = routeCache.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.options;
 
-    const isOnline = await connectivityService.isConnected().catch(() => true);
+    // US16: o cache em memória é somente uma otimização da busca online.
+    // Offline, a fonte de verdade é exclusivamente o armazenamento persistente
+    // alimentado por saveOfflineRoute().
+    const isOnline = await connectivityService.isConnected().catch(() => false);
     if (!isOnline) {
       const offline = await routeCacheRepository.find(
         origin.latitude, origin.longitude, destination.latitude, destination.longitude,
       );
       if (offline) {
-        routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, options: offline.options });
-        return offline.options;
+        const offlineOptions = offline.options.map((option) => ({
+          ...option,
+          offlineCached: true,
+        }));
+        routeCache.set(key, {
+          expiresAt: Date.now() + ROUTE_CACHE_TTL_MS,
+          options: offlineOptions,
+        });
+        return offlineOptions;
       }
       throw new Error('offline');
     }
+
+    const cached = routeCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.options;
 
     const params = new URLSearchParams({
       originLat: String(origin.latitude),
@@ -58,19 +69,7 @@ export const routesService = {
       });
 
       routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, options });
-      // Aguarda a persistência antes de concluir a busca. Assim, se o usuário
-      // desligar a conexão logo após visualizar os resultados, a rota já estará
-      // disponível no SQLite para o modo offline. Falha de persistência não
-      // impede a exibição da rota online.
-      await routeCacheRepository.save({
-        originLabel: '',
-        originLatitude: origin.latitude,
-        originLongitude: origin.longitude,
-        destinationLabel: '',
-        destinationLatitude: destination.latitude,
-        destinationLongitude: destination.longitude,
-        options,
-      }).catch(() => undefined);
+      // Busca online não é cache offline. Somente saveOfflineRoute() persiste uma rota para uso sem internet.
       return options;
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -79,7 +78,7 @@ export const routesService = {
       );
       if (offline) {
         routeCache.set(key, { expiresAt: Date.now() + ROUTE_CACHE_TTL_MS, options: offline.options });
-        return offline.options;
+        return offline.options.map((option) => ({ ...option, offlineCached: true }));
       }
       throw error;
     }
@@ -90,29 +89,33 @@ export const routesService = {
     destination: { label?: string; latitude: number; longitude: number },
     options: RouteOption[],
   ): Promise<void> {
-    const existing = await routeCacheRepository.find(
-      origin.latitude, origin.longitude, destination.latitude, destination.longitude,
-    );
-    const merged = [...(existing?.options ?? [])];
-    for (const option of options) {
-      const index = merged.findIndex((item) =>
-        item.lineId === option.lineId &&
-        item.boardingStop.id === option.boardingStop.id &&
-        item.alightingStop.id === option.alightingStop.id,
-      );
-      if (index >= 0) merged[index] = option;
-      else merged.push(option);
+    if (!options.length) {
+      throw new Error('Nenhuma opção de rota foi informada para salvar offline.');
     }
 
-    await routeCacheRepository.save({
-      originLabel: origin.label || existing?.originLabel || '',
-      originLatitude: origin.latitude,
-      originLongitude: origin.longitude,
-      destinationLabel: destination.label || existing?.destinationLabel || '',
-      destinationLatitude: destination.latitude,
-      destinationLongitude: destination.longitude,
-      options: merged,
-    });
+    // Regra da US16: a unidade de identidade do salvamento offline é a linha,
+    // não a combinação de origem e destino usada na pesquisa.
+    for (const option of options) {
+      await routeCacheRepository.saveUniqueLine(
+        {
+          originLabel: origin.label || '',
+          originLatitude: origin.latitude,
+          originLongitude: origin.longitude,
+          destinationLabel: destination.label || '',
+          destinationLatitude: destination.latitude,
+          destinationLongitude: destination.longitude,
+          options: [option],
+        },
+        option,
+      );
+    }
+
+    const persisted = await routeCacheRepository.listAll();
+    for (const option of options) {
+      if (!persisted.some((item) => item.option.lineId === option.lineId)) {
+        throw new Error('A rota não pôde ser confirmada no armazenamento offline.');
+      }
+    }
   },
 
   async getLineDetail(lineId: string): Promise<LineDetail> {

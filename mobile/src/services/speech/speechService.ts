@@ -2,6 +2,7 @@ import * as Speech from 'expo-speech';
 import { createAudioPlayer, AudioPlayer } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from '../../constants/config';
+import { connectivityService } from '../connectivity/connectivityService';
 import { SpeechRate, SupportedLanguage } from '../../types/settings';
 
 /**
@@ -17,6 +18,8 @@ let requestGeneration = 0;
 // Quando uma tela crítica (ex.: alerta de 200 m) está falando, os anúncios
 // periódicos da tela de acompanhamento não podem interromper essa mensagem.
 let prioritySpeechActive = false;
+let queuedSpeech: { text: string; language: SupportedLanguage; rate: SpeechRate } | null = null;
+let queuedSpeechTimer: ReturnType<typeof setTimeout> | null = null;
 // Cache de memória e deduplicação: toques repetidos não iniciam downloads paralelos.
 const audioUriCache = new Map<string, string>();
 const pendingAudio = new Map<string, Promise<string>>();
@@ -45,6 +48,34 @@ function stableHash(value: string): string {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16);
+}
+
+function clearQueuedSpeech(): void {
+  queuedSpeech = null;
+  if (queuedSpeechTimer) {
+    clearTimeout(queuedSpeechTimer);
+    queuedSpeechTimer = null;
+  }
+}
+
+async function isCurrentlySpeaking(): Promise<boolean> {
+  if (activePlayer) return activePlayer.playing;
+  return Speech.isSpeakingAsync();
+}
+
+function scheduleQueuedSpeech(): void {
+  if (!queuedSpeech || queuedSpeechTimer) return;
+  queuedSpeechTimer = setTimeout(async () => {
+    queuedSpeechTimer = null;
+    const pending = queuedSpeech;
+    if (!pending) return;
+    if (prioritySpeechActive || await isCurrentlySpeaking()) {
+      scheduleQueuedSpeech();
+      return;
+    }
+    queuedSpeech = null;
+    playCachedSpeech(pending.text, pending.language, pending.rate);
+  }, 120);
 }
 
 function stopCurrentAudio(): void {
@@ -81,6 +112,9 @@ async function getCachedAudio(text: string, language: SupportedLanguage): Promis
       return uri;
     }
 
+    const online = await connectivityService.isConnected().catch(() => false);
+    if (!online) throw new Error('offline');
+
     const response = await fetch(`${API_URL.replace(/\/$/, '')}/speech/synthesize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -109,6 +143,49 @@ function speakNatively(text: string, options: { rate: SpeechRate; language: Supp
     rate: SPEECH_RATE_MAP[options.rate],
     language: LANGUAGE_LOCALE_MAP[options.language],
   });
+}
+
+function speakText(text: string, options: { rate: SpeechRate; language: SupportedLanguage }): void {
+  if (prioritySpeechActive) return;
+  const cleanText = text.trim();
+  if (!cleanText) return;
+  stopCurrentAudio();
+  const generation = ++requestGeneration;
+
+  void (async () => {
+    try {
+      const uri = await getCachedAudio(cleanText, options.language);
+      if (generation !== requestGeneration) return;
+      activePlayer = createAudioPlayer(uri);
+      activePlayer.setPlaybackRate(SPEECH_RATE_MAP[options.rate], 'high');
+      activePlayer.play();
+    } catch {
+      if (generation !== requestGeneration) return;
+      speakNatively(cleanText, options);
+    }
+  })();
+}
+
+function playCachedSpeech(text: string, language: SupportedLanguage, rate: SpeechRate): void {
+  const cleanText = text.trim();
+  if (!cleanText) return;
+  const key = cacheKey(cleanText, language);
+  const uri = audioUriCache.get(key);
+  if (!uri) {
+    // Fallback: the caller may not have prefetched this phrase yet.
+    const options = { rate, language };
+    speakText(cleanText, options);
+    return;
+  }
+  stopCurrentAudio();
+  const generation = ++requestGeneration;
+  try {
+    activePlayer = createAudioPlayer(uri);
+    activePlayer.setPlaybackRate(SPEECH_RATE_MAP[rate], 'high');
+    if (generation === requestGeneration) activePlayer.play();
+  } catch {
+    if (generation === requestGeneration) speakNatively(cleanText, { rate, language });
+  }
 }
 
 export const speechService = {
@@ -159,48 +236,21 @@ export const speechService = {
    * Se o áudio ainda não estiver no cache, cai para o mesmo fluxo de speak().
    */
   speakCached(text: string, language: SupportedLanguage, rate: SpeechRate): void {
+    playCachedSpeech(text, language, rate);
+  },
+
+  /** Enfileira uma fala automática sem interromper o áudio que já está em andamento.
+   * Se várias orientações chegarem enquanto outra fala toca, somente a mais recente
+   * fica pendente. Uma ação explícita do usuário continua usando speak/speakCached. */
+  enqueue(text: string, options: { rate: SpeechRate; language: SupportedLanguage }): void {
     const cleanText = text.trim();
     if (!cleanText) return;
-    const key = cacheKey(cleanText, language);
-    const uri = audioUriCache.get(key);
-    if (!uri) {
-      this.speak(cleanText, { rate, language });
-      return;
-    }
-    stopCurrentAudio();
-    const generation = ++requestGeneration;
-    try {
-      activePlayer = createAudioPlayer(uri);
-      activePlayer.setPlaybackRate(SPEECH_RATE_MAP[rate], 'high');
-      if (generation === requestGeneration) activePlayer.play();
-    } catch {
-      if (generation === requestGeneration) speakNatively(cleanText, { rate, language });
-    }
+    queuedSpeech = { text: cleanText, language: options.language, rate: options.rate };
+    scheduleQueuedSpeech();
   },
 
   speak(text: string, options: { rate: SpeechRate; language: SupportedLanguage }): void {
-    if (prioritySpeechActive) return;
-    const cleanText = text.trim();
-    if (!cleanText) return;
-    stopCurrentAudio();
-    const generation = ++requestGeneration;
-
-    void (async () => {
-      try {
-        // O cache evita novas chamadas pagas para frases já ouvidas no aparelho.
-        const uri = await getCachedAudio(cleanText, options.language);
-        // Se a pessoa apertou X/Parar enquanto a API respondia, não tocar o áudio.
-        if (generation !== requestGeneration) return;
-        activePlayer = createAudioPlayer(uri);
-        // Mantém a preferência de velocidade de acessibilidade também na voz neural.
-        activePlayer.setPlaybackRate(SPEECH_RATE_MAP[options.rate], 'high');
-        activePlayer.play();
-      } catch {
-        if (generation !== requestGeneration) return;
-        // A experiência continua disponível mesmo sem internet/configuração do TTS.
-        speakNatively(cleanText, options);
-      }
-    })();
+    speakText(text, options);
   },
 
   /**
@@ -230,12 +280,12 @@ export const speechService = {
 
   stop(): void {
     prioritySpeechActive = false;
+    clearQueuedSpeech();
     requestGeneration += 1;
     stopCurrentAudio();
   },
 
   async isSpeaking(): Promise<boolean> {
-    if (activePlayer) return activePlayer.playing;
-    return Speech.isSpeakingAsync();
+    return isCurrentlySpeaking();
   },
 };

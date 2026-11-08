@@ -23,6 +23,8 @@ model User {
 
   passwordResetTokens PasswordResetToken[]
   presence          UserPresence?
+  notificationPreference UserNotificationPreference?
+  lineSubscriptions LineSubscription[]
 
   @@map("users")
 }
@@ -38,6 +40,31 @@ model UserPresence {
 
   @@index([updatedAt])
   @@map("user_presence")
+}
+
+// Notificações sobre alterações nas linhas (US17). O app é a fonte principal
+// (SQLite local); estas tabelas guardam uma cópia por usuário para restaurar
+// as inscrições em outro aparelho e para um futuro envio de push remoto.
+model UserNotificationPreference {
+  userId    String   @id @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("user_notification_preferences")
+}
+
+model LineSubscription {
+  id        String      @id @default(uuid())
+  userId    String      @map("user_id")
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lineId    String      @map("line_id")
+  line      TransitLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@unique([userId, lineId])
+  @@index([lineId])
+  @@map("line_subscriptions")
 }
 
 // Token de recuperação de senha (US01 - "Recuperação de senha por e-mail")
@@ -128,6 +155,7 @@ model TransitLine {
   status   TransitLineStatus?
   departures TransitDeparture[]
   trips    TransitTrip[]
+  subscriptions LineSubscription[]
 
   @@index([code])
   @@index([dataSource])

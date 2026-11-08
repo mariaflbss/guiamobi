@@ -14,6 +14,7 @@ import { speechService } from '../services/speech/speechService';
 import { useSearchHistory } from '../hooks/useSearchHistory';
 import { useRouteOptions } from '../hooks/useRouteOptions';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
+import { useConnectivity } from '../hooks/useConnectivity';
 import { AppStackParamList } from '../navigation/types';
 import { RouteOption } from '../types/routes';
 
@@ -29,7 +30,8 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
   const { t } = useTranslation();
   const { theme, announce, settings, language } = useAccessibility();
   const { addSearch, setChosenLine } = useSearchHistory();
-  const { origin, destination, historyId } = route.params;
+  const { origin, destination, historyId, reroute = false } = route.params;
+  const { isConnected } = useConnectivity();
   const { options, isLoading, errorMessage, hasTransitData } = useRouteOptions(origin, destination);
   const historyIdRef = useRef<string | undefined>(historyId);
   const announcedRef = useRef(false);
@@ -88,17 +90,19 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
       destinationLongitude: destination.longitude,
       shape: option.shape,
       stops: option.stops,
+      offlineSaved: Boolean(option.offlineCached),
     });
   }
 
   const c = theme.colors;
+  const displayAllOptions = reroute || !settings.simpleMode;
 
   return (
     <ScreenContainer
       scroll
       header={
         <ScreenHeader
-          title={t('routes.title')}
+          title={reroute ? t('routes.rerouteTitle') : t('routes.title')}
           subtitle={`${origin.label} → ${destination.label}`}
           onBack={() => navigation.goBack()}
         />
@@ -115,12 +119,16 @@ export function RoutesFoundScreen({ route, navigation }: Props) {
 
       {!isLoading && errorMessage ? <InlineMessage message={errorMessage === 'offline' ? t('routes.offlineNoCache') : errorMessage} tone="error" /> : null}
 
+      {!isLoading && !isConnected && !errorMessage && options.length > 0 ? (
+        <InlineMessage message={t('common.offlineShort')} tone="warning" />
+      ) : null}
+
       {!isLoading && !errorMessage && options.length === 0 ? (
         <InlineMessage message={hasTransitData ? t('routes.notFound') : t('routes.noTransitData')} tone="warning" />
       ) : null}
 
       {!isLoading && options.length > 0 ? (
-        settings.simpleMode ? (
+        !displayAllOptions ? (
           <SimpleRouteCard option={options[0]} onOpen={() => openDetail(options[0])} />
         ) : (
           <>

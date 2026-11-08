@@ -19,6 +19,9 @@ interface ScreenHeaderProps {
   /** Ícone/elemento à esquerda do título (ex.: badge da linha). */
   leading?: React.ReactNode;
   color?: string;
+  compact?: boolean;
+  /** Reduz o título para cabeçalhos compactos com nomes longos. */
+  titleVariant?: React.ComponentProps<typeof AccessibleText>['variant'];
 }
 
 /**
@@ -27,15 +30,15 @@ interface ScreenHeaderProps {
  * expõe o título como "header" para leitores de tela e traz o botão de
  * voltar com 44x44 (R28).
  */
-export function ScreenHeader({ title, subtitle, onBack, right, children, leading, color }: ScreenHeaderProps) {
+export function ScreenHeader({ title, subtitle, onBack, right, children, leading, color, compact = false, titleVariant }: ScreenHeaderProps) {
   const { t } = useTranslation();
   const { theme } = useAccessibility();
   const insets = useSafeAreaInsets();
   const c = theme.colors;
 
   return (
-    <View style={[styles.container, { backgroundColor: color ?? c.primary, paddingTop: insets.top + 14 }]}>
-      <View style={styles.row}>
+    <View style={[styles.container, compact ? styles.compactContainer : null, { backgroundColor: color ?? c.primary, paddingTop: insets.top + (compact ? 6 : 14) }]}>
+      <View style={[styles.row, compact ? styles.compactRow : null]}>
         {onBack ? (
           <Pressable
             onPress={onBack}
@@ -48,7 +51,7 @@ export function ScreenHeader({ title, subtitle, onBack, right, children, leading
         ) : null}
         {leading}
         <View style={styles.texts}>
-          <AccessibleText variant="heading" color={c.onPrimary} accessibilityRole="header" weight="extrabold">
+          <AccessibleText variant={titleVariant ?? (compact ? 'title' : 'heading')} color={c.onPrimary} accessibilityRole="header" weight="extrabold">
             {title}
           </AccessibleText>
           {subtitle ? (
@@ -74,6 +77,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  compactContainer: { paddingBottom: 7 },
+  compactRow: { gap: 8 },
   backButton: {
     width: MIN_TOUCH_TARGET,
     height: MIN_TOUCH_TARGET,

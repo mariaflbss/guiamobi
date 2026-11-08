@@ -15,6 +15,7 @@ import { RecentRouteRow } from '../components/RecentRouteRow';
 import { SimpleHomeScreen } from './SimpleHomeScreen';
 import { useAuth } from '../hooks/useAuth';
 import { useAccessibility } from '../contexts/AccessibilityContext';
+import { useNotifications } from '../contexts/NotificationsContext';
 import { speechService } from '../services/speech/speechService';
 import { useRouteDraft, DraftPlace } from '../contexts/RouteDraftContext';
 import { useConnectivity } from '../hooks/useConnectivity';
@@ -49,6 +50,7 @@ function FullHome() {
   const { favorites } = useFavorites();
   const { history, lastRoute } = useSearchHistory();
   const navigation = useNavigation<HomeNavigation>();
+  const { unreadCount } = useNotifications();
   const insets = useSafeAreaInsets();
   const draft = useRouteDraft();
   const location = useLocationSearch();
@@ -133,12 +135,23 @@ function FullHome() {
               </AccessibleText>
             </View>
             <Pressable
-              onPress={() => Alert.alert(t('home.notifications'), t('home.noNotifications'))}
+              onPress={() => navigation.navigate('Notifications')}
               accessibilityRole="button"
-              accessibilityLabel={t('home.notifications')}
+              accessibilityLabel={
+                unreadCount > 0
+                  ? t('notifications.bellLabelUnread', { count: unreadCount })
+                  : t('notifications.bellLabel')
+              }
               style={[styles.bell, { backgroundColor: c.headerOverlay }]}
             >
               <Icon icon={Bell} size={22} color={c.onPrimary} />
+              {unreadCount > 0 ? (
+                <View
+                  style={[styles.bellBadge, { backgroundColor: c.error, borderColor: c.primary }]}
+                  accessible={false}
+                  importantForAccessibility="no-hide-descendants"
+                />
+              ) : null}
             </Pressable>
           </View>
         </View>
@@ -320,6 +333,15 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 9,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
   },
   formCard: {
     marginHorizontal: 20,

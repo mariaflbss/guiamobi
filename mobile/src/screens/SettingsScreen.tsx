@@ -3,7 +3,7 @@ import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, Check, CircleHelp, Contrast, Lightbulb, LogOut, Moon, Sparkles, Vibrate, Volume2 } from 'lucide-react-native';
+import { ArrowRight, Bell, Check, CircleHelp, Contrast, Lightbulb, LogOut, Moon, Sparkles, Vibrate, Volume2 } from 'lucide-react-native';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { AccessibleText } from '../components/AccessibleText';
@@ -236,6 +236,13 @@ export function SettingsScreen() {
         description={user ? `${user.name} · ${user.email}` : undefined}
         leading={<Avatar photoUri={profilePhotoUri} size={44} />}
         onPress={() => navigation.navigate('EditProfile')}
+      />
+      <NavRow
+        icon={Bell}
+        tone="warning"
+        title={t('notifications.title')}
+        description={t('notifications.settingsDescription')}
+        onPress={() => navigation.navigate('Notifications')}
       />
       <NavRow
         icon={Sparkles}

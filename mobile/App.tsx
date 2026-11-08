@@ -13,6 +13,8 @@ import {
 import { AccessibilityProvider, useAccessibility } from './src/contexts/AccessibilityContext';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { RouteDraftProvider } from './src/contexts/RouteDraftContext';
+import { NotificationsProvider } from './src/contexts/NotificationsContext';
+import { defineLineNoticesTask } from './src/services/notifications/backgroundTask';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import './src/locales/i18n';
 
@@ -22,6 +24,10 @@ import './src/locales/i18n';
 if (__DEV__) {
   LogBox.ignoreLogs(['Cannot connect to Expo CLI.']);
 }
+
+// US17: a tarefa de verificação de avisos em segundo plano precisa ser
+// definida no escopo global, antes de qualquer componente renderizar.
+defineLineNoticesTask();
 
 // Cliente único do React Query, usado pelos hooks de favoritos e histórico
 // (US07) para cache e sincronização de estado sobre o SQLite local.
@@ -55,8 +61,10 @@ export default function App() {
         <AccessibilityProvider>
           <AuthProvider>
             <RouteDraftProvider>
-              <AppStatusBar />
-              <RootNavigator fontsLoaded={fontsLoaded} />
+              <NotificationsProvider>
+                <AppStatusBar />
+                <RootNavigator fontsLoaded={fontsLoaded} />
+              </NotificationsProvider>
             </RouteDraftProvider>
           </AuthProvider>
         </AccessibilityProvider>

@@ -1,11 +1,12 @@
 import React from 'react';
-import { NavigationContainer, DefaultTheme, DarkTheme, LinkingOptions } from '@react-navigation/native';
+import { NavigationContainer, NavigationContainerRef, DefaultTheme, DarkTheme, LinkingOptions } from '@react-navigation/native';
 import { useAuth } from '../hooks/useAuth';
 import { useAccessibility } from '../contexts/AccessibilityContext';
 import { AuthNavigator } from './AuthNavigator';
 import { AppNavigator } from './AppNavigator';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { AuthStackParamList } from './types';
+import { navigationRef } from './navigationRef';
 
 /**
  * Deep link `guiamobi://redefinir-senha?token=...` (o servidor abre esse
@@ -45,7 +46,13 @@ export function RootNavigator({ fontsLoaded = true }: { fontsLoaded?: boolean })
   };
 
   return (
-    <NavigationContainer theme={navigationTheme} linking={user ? undefined : linking}>
+    <NavigationContainer
+      // O container serve às duas pilhas (autenticação e app); a referência
+      // só é usada para abrir telas do app (ex.: toque numa notificação).
+      ref={navigationRef as unknown as React.Ref<NavigationContainerRef<AuthStackParamList>>}
+      theme={navigationTheme}
+      linking={user ? undefined : linking}
+    >
       {user ? <AppNavigator /> : <AuthNavigator />}
     </NavigationContainer>
   );

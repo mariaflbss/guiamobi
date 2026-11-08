@@ -22,7 +22,7 @@ interface AccessibleTextInputProps extends TextInputProps {
  * O rótulo é sempre lido pelo leitor de tela, o erro é texto + região
  * "live" (não só cor) e o foco tem contorno visível.
  */
-export const AccessibleTextInput = forwardRef<TextInput, AccessibleTextInputProps>(function AccessibleTextInput(
+export const AccessibleTextInput = forwardRef<React.ElementRef<typeof TextInput>, AccessibleTextInputProps>(function AccessibleTextInput(
   { label, errorMessage, icon, rightElement, hideLabel, style, onFocus, onBlur, ...props },
   ref
 ) {

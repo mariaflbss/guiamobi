@@ -79,7 +79,7 @@ export function StopAlertScreen({ route, navigation }: Props) {
       </View>
 
       <View style={styles.spacer} />
-      <AccessibleButton label={t('stopAlert.understood')} variant="warning" size="lg" onPress={() => navigation.goBack()} style={styles.button} />
+      <AccessibleButton label={t('stopAlert.understood')} variant="warning" size="lg" onPress={() => { speechService.stop(); navigation.goBack(); }} style={styles.button} />
     </ScreenContainer>
   );
 }

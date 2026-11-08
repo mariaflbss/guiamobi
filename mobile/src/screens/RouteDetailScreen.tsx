@@ -3,7 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'reac
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useIsFocused } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, Check, Clock3, Download, Heart, Navigation, Play } from 'lucide-react-native';
+import { AlertTriangle, Bell, BellRing, Check, Clock3, Download, Heart, Navigation, Play, Trash2 } from 'lucide-react-native';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { AccessibleText } from '../components/AccessibleText';
@@ -15,13 +15,18 @@ import { RouteMap } from '../components/RouteMap';
 import { RouteBottomSheet } from '../components/RouteBottomSheet';
 import { RouteOptionCard } from '../components/RouteOptionCard';
 import { useAccessibility } from '../contexts/AccessibilityContext';
+import { useNotifications } from '../contexts/NotificationsContext';
 import { useFavorites } from '../hooks/useFavorites';
 import { useLineDetail } from '../hooks/useLineDetail';
 import { useNearbyPois } from '../hooks/useNearbyPois';
 import { useStatusBarStyle } from '../hooks/useStatusBarStyle';
+import { useConnectivity } from '../hooks/useConnectivity';
 import { AppStackParamList } from '../navigation/types';
 import { addMinutes } from '../utils/format';
 import { routesService } from '../services/api/routesService';
+import { routeCacheRepository } from '../database/repositories/routeCacheRepository';
+import { offlineMapService } from '../services/storage/offlineMapService';
+import { connectivityService } from '../services/connectivity/connectivityService';
 import { RouteOption, ServiceAlertItem } from '../types/routes';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'RouteDetail'>;
@@ -45,15 +50,57 @@ export function RouteDetailScreen({ route, navigation }: Props) {
 
   const { line, isLoading, errorMessage } = useLineDetail(p.lineId, prefetchedLine);
   const { favoriteLines, favorites, addFavoriteLine, removeFavoriteLine } = useFavorites();
+  const { isFollowing, follow, unfollow } = useNotifications();
   const [serviceAlerts, setServiceAlerts] = useState<ServiceAlertItem[]>([]);
   const [alternatives, setAlternatives] = useState<RouteOption[]>([]);
   const [alternativesLoading, setAlternativesLoading] = useState(false);
-  const [offlineSaved, setOfflineSaved] = useState(false);
+  const [offlineSaved, setOfflineSaved] = useState(Boolean(p.offlineSaved));
+  const [offlineSaving, setOfflineSaving] = useState(false);
 
   useStatusBarStyle('light');
 
   const c = theme.colors;
   const isFocused = useIsFocused();
+  const { isConnected } = useConnectivity(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (
+      p.originLatitude == null ||
+      p.originLongitude == null ||
+      p.destinationLatitude == null ||
+      p.destinationLongitude == null ||
+      !p.boardingStopId ||
+      !p.alightingStopId
+    ) {
+      setOfflineSaved(Boolean(p.offlineSaved));
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void routeCacheRepository.hasLine(p.lineId)
+      .then((savedRoute) => {
+        if (!cancelled) setOfflineSaved(savedRoute);
+      })
+      .catch(() => {
+        if (!cancelled) setOfflineSaved(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    p.originLatitude,
+    p.originLongitude,
+    p.destinationLatitude,
+    p.destinationLongitude,
+    p.boardingStopId,
+    p.alightingStopId,
+    p.lineId,
+    p.offlineSaved,
+  ]);
 
   useEffect(() => {
     // Opções calculadas pela Google usam IDs virtuais e não possuem alerta
@@ -63,15 +110,20 @@ export function RouteDetailScreen({ route, navigation }: Props) {
       return;
     }
 
+    const origin = { latitude: p.originLatitude, longitude: p.originLongitude };
+    const destination = { latitude: p.destinationLatitude, longitude: p.destinationLongitude };
     let cancelled = false;
 
-    routesService.getServiceAlerts(p.lineId)
-      .then((result) => {
-        if (!cancelled) setServiceAlerts(result.available ? result.alerts : []);
-      })
-      .catch(() => {
-        if (!cancelled) setServiceAlerts([]);
-      });
+    void connectivityService.isConnected().then((online) => {
+      if (!online || cancelled) return;
+      return routesService.getServiceAlerts(p.lineId)
+        .then((result) => {
+          if (!cancelled) setServiceAlerts(result.available ? result.alerts : []);
+        })
+        .catch(() => {
+          if (!cancelled) setServiceAlerts([]);
+        });
+    });
 
     return () => {
       cancelled = true;
@@ -96,12 +148,42 @@ export function RouteDetailScreen({ route, navigation }: Props) {
 
     let cancelled = false;
 
-    setAlternativesLoading(true);
+    void connectivityService.isConnected().then((online) => {
+      if (!online || cancelled) {
+        if (!cancelled) setAlternatives([]);
+        return;
+      }
 
-    routesService.searchRoutes(
-      { latitude: p.originLatitude, longitude: p.originLongitude },
-      { latitude: p.destinationLatitude, longitude: p.destinationLongitude },
-    )
+      setAlternativesLoading(true);
+
+      // Os parâmetros foram validados acima, mas o TypeScript não mantém esse
+      // narrowing dentro do callback assíncrono. Capturamos os valores locais
+      // e validamos novamente antes de montar Coordinates.
+      const originLatitude = p.originLatitude;
+      const originLongitude = p.originLongitude;
+      const destinationLatitude = p.destinationLatitude;
+      const destinationLongitude = p.destinationLongitude;
+
+      if (
+        originLatitude == null ||
+        originLongitude == null ||
+        destinationLatitude == null ||
+        destinationLongitude == null
+      ) {
+        setAlternativesLoading(false);
+        return;
+      }
+
+      const origin = {
+        latitude: originLatitude,
+        longitude: originLongitude,
+      };
+      const destination = {
+        latitude: destinationLatitude,
+        longitude: destinationLongitude,
+      };
+
+      return routesService.searchRoutes(origin, destination)
       .then((items) => {
         if (!cancelled) {
           setAlternatives(
@@ -117,6 +199,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
       .finally(() => {
         if (!cancelled) setAlternativesLoading(false);
       });
+    });
 
     return () => {
       cancelled = true;
@@ -175,7 +258,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
   // localização simulada/GPS e atualiza os POIs dinamicamente.
   const nearbyRoutePois = useNearbyPois(
     orientationCenter,
-    isFocused,
+    isFocused && isConnected,
   );
 
   const routePois = useMemo(() => {
@@ -240,12 +323,55 @@ export function RouteDetailScreen({ route, navigation }: Props) {
     }
   }
 
+  // US17: acompanhar avisos (alteração, desvio, interrupção) desta linha.
+  // Linhas calculadas pela Google usam IDs virtuais e não têm avisos oficiais.
+  const canFollowNotices = !p.lineId.startsWith('google:');
+  const isFollowingNotices = isFollowing(p.lineId);
+
+  async function toggleFollowNotices() {
+    if (isFollowingNotices) {
+      await unfollow(p.lineId);
+      announce(t('notifications.unfollowedAnnounce', { code: p.lineCode }), { haptic: 'success' });
+    } else {
+      await follow({ lineId: p.lineId, code: p.lineCode, name: p.lineName });
+      announce(t('notifications.followLineAnnounce', { code: p.lineCode }), { haptic: 'success' });
+    }
+  }
+
+  const followButton = canFollowNotices ? (
+    <Pressable
+      onPress={() => void toggleFollowNotices()}
+      accessibilityRole="button"
+      accessibilityLabel={isFollowingNotices ? t('notifications.unfollowLine') : t('notifications.followLine')}
+      accessibilityState={{ selected: isFollowingNotices }}
+      style={[
+        styles.heart,
+        {
+          borderColor: isFollowingNotices ? c.warning : c.borderStrong,
+          backgroundColor: c.surface,
+        },
+      ]}
+    >
+      <Icon
+        icon={isFollowingNotices ? BellRing : Bell}
+        size={24}
+        color={isFollowingNotices ? c.warning : c.textSecondary}
+      />
+    </Pressable>
+  ) : null;
+
   async function saveOfflineRegion() {
+    if (!isConnected || offlineSaved || offlineSaving) {
+      return;
+    }
+
     if (
       p.originLatitude == null ||
       p.originLongitude == null ||
       p.destinationLatitude == null ||
-      p.destinationLongitude == null
+      p.destinationLongitude == null ||
+      !p.boardingStopId ||
+      !p.alightingStopId
     ) {
       return;
     }
@@ -256,7 +382,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
       lineName: p.lineName,
 
       boardingStop: {
-        id: p.boardingStopId ?? '',
+        id: p.boardingStopId,
         name: stops[boardingIndex]?.stop.name ?? '',
         distanceMeters: 0,
         latitude: stops[boardingIndex]?.stop.latitude,
@@ -264,7 +390,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
       },
 
       alightingStop: {
-        id: p.alightingStopId ?? '',
+        id: p.alightingStopId,
         name: stops[destinationIndex]?.stop.name ?? '',
         distanceMeters: 0,
         latitude: stops[destinationIndex]?.stop.latitude,
@@ -285,26 +411,101 @@ export function RouteDetailScreen({ route, navigation }: Props) {
       stops: line?.stops ?? p.stops,
     };
 
-    await routesService.saveOfflineRoute(
-      {
-        label: '',
-        latitude: p.originLatitude,
-        longitude: p.originLongitude,
-      },
-      {
-        label: p.destinationLabel ?? '',
-        latitude: p.destinationLatitude,
-        longitude: p.destinationLongitude,
-      },
-      [option],
-    );
+    setOfflineSaving(true);
 
-    setOfflineSaved(true);
+    try {
+      // Primeiro persistimos a rota no SQLite. Esse é o dado principal e
+      // sua confirmação não depende do download do mapa.
+      await routesService.saveOfflineRoute(
+        {
+          label: '',
+          latitude: p.originLatitude,
+          longitude: p.originLongitude,
+        },
+        {
+          label: p.destinationLabel ?? '',
+          latitude: p.destinationLatitude,
+          longitude: p.destinationLongitude,
+        },
+        [option],
+      );
 
-    announce(
-      t('routeDetail.offlineSaved'),
-      { haptic: 'success' },
-    );
+      setOfflineSaved(true);
+
+      // A rota já está persistida neste ponto. O botão pode voltar a responder
+      // imediatamente; o download do mapa continua em segundo plano.
+      setOfflineSaving(false);
+      announce(
+        t('routeDetail.offlineSaved'),
+        { haptic: 'success' },
+      );
+
+      const regionKey = offlineMapService.makeRegionKey(
+        p.originLatitude,
+        p.originLongitude,
+        p.destinationLatitude,
+        p.destinationLongitude,
+      );
+
+      const mapPoints = [
+        { latitude: p.originLatitude, longitude: p.originLongitude },
+        { latitude: p.destinationLatitude, longitude: p.destinationLongitude },
+        ...(option.shape ?? []),
+        ...(option.stops ?? []).map((item) => item.stop),
+      ];
+
+      void offlineMapService.saveRegion(regionKey, mapPoints).catch(() => {
+        // Falha do mapa não desfaz a rota persistida.
+        announce(
+          t('routeDetail.offlineMapSaveFailed'),
+          { haptic: 'warning' },
+        );
+      });
+    } catch (error) {
+      // Não marcar a rota como salva quando o armazenamento não confirmou.
+      setOfflineSaved(false);
+      const message =
+        error instanceof Error
+          ? error.message
+          : t('routeDetail.offlineSaveError');
+      announce(message, { haptic: 'error' });
+    } finally {
+      setOfflineSaving(false);
+    }
+  }
+
+  async function removeOfflineRoute() {
+    setOfflineSaving(true);
+
+    try {
+      const removed = await routeCacheRepository.removeLine(p.lineId);
+
+      setOfflineSaved(false);
+      setOfflineSaving(false);
+      announce(t('routeDetail.offlineRemoved'), { haptic: 'success' });
+
+      // A rota pode ter sido salva a partir de outra origem/destino.
+      // Limpa as regiões correspondentes ao registro realmente removido.
+      for (const item of removed) {
+        const regionKey = offlineMapService.makeRegionKey(
+          item.originLatitude,
+          item.originLongitude,
+          item.destinationLatitude,
+          item.destinationLongitude,
+        );
+        void offlineMapService.removeRegion(regionKey).catch(() => {
+          // Falha na limpeza dos tiles não desfaz a remoção da rota salva.
+        });
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : t('routeDetail.offlineRemoveError');
+      announce(message, { haptic: 'error' });
+    } finally {
+      setOfflineSaving(false);
+    }
   }
 
   function startTrip() {
@@ -315,6 +516,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
       boardingStopId: p.boardingStopId as string,
       alightingStopId: p.alightingStopId as string,
       shape: p.shape,
+      offlineSaved,
     });
   }
 
@@ -341,7 +543,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
           index <= destinationIndex),
     );
 
-  const stopsScrollRef = useRef<ScrollView>(null);
+  const stopsScrollRef = useRef<React.ElementRef<typeof ScrollView>>(null);
 
   // Mantemos somente a altura do conteúdo disponível para limitar
   // o Bottom Sheet. A altura do mapa NÃO é calculada manualmente.
@@ -353,6 +555,8 @@ export function RouteDetailScreen({ route, navigation }: Props) {
       padding={0}
       header={
         <ScreenHeader
+          compact
+          titleVariant="subtitle"
           title={p.lineName}
           subtitle={subtitleParts.join(' · ')}
           onBack={() => navigation.goBack()}
@@ -368,7 +572,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
               importantForAccessibility="no-hide-descendants"
             >
               <AccessibleText
-                variant="subtitle"
+                variant="label"
                 weight="extrabold"
                 color={c.onPrimary}
               >
@@ -428,6 +632,8 @@ export function RouteDetailScreen({ route, navigation }: Props) {
                   />
                 </Pressable>
 
+                {followButton}
+
                 <View style={styles.flex}>
                   <AccessibleButton
                     label={t('routeDetail.startTrip')}
@@ -439,6 +645,7 @@ export function RouteDetailScreen({ route, navigation }: Props) {
                 </View>
               </>
             ) : (
+              <>
               <View style={styles.flex}>
                 <AccessibleButton
                   label={
@@ -455,6 +662,8 @@ export function RouteDetailScreen({ route, navigation }: Props) {
                   onPress={toggleFavoriteLine}
                 />
               </View>
+              {followButton}
+              </>
             )}
           </View>
         ) : undefined
@@ -598,19 +807,36 @@ export function RouteDetailScreen({ route, navigation }: Props) {
             p.originLongitude != null &&
             p.destinationLatitude != null &&
             p.destinationLongitude != null ? (
-              <AccessibleButton
-                label={
-                  offlineSaved
-                    ? t('routeDetail.offlineSavedButton')
-                    : t('routeDetail.saveOffline')
-                }
-                icon={Download}
-                variant="secondary"
-                onPress={() => {
-                  void saveOfflineRegion();
-                }}
-                style={styles.offlineButton}
-              />
+              <View style={styles.offlineControls}>
+                <AccessibleButton
+                  label={
+                    offlineSaved
+                      ? t('routeDetail.offlineSavedButton')
+                      : t('routeDetail.saveOffline')
+                  }
+                  icon={offlineSaved ? Check : Download}
+                  variant="secondary"
+                  onPress={() => {
+                    void saveOfflineRegion();
+                  }}
+                  loading={offlineSaving}
+                  disabled={offlineSaved || !isConnected || offlineSaving}
+                  style={styles.offlineButton}
+                />
+                {offlineSaved ? (
+                  <Pressable
+                    onPress={() => { void removeOfflineRoute(); }}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('routeDetail.removeOffline')}
+                    style={styles.removeOfflineButton}
+                  >
+                    <Icon icon={Trash2} size={16} color={c.error} />
+                    <AccessibleText variant="caption" weight="bold" color={c.error}>
+                      {t('routeDetail.removeOffline')}
+                    </AccessibleText>
+                  </Pressable>
+                ) : null}
+              </View>
             ) : null}
 
             <View style={styles.mapArea}>
@@ -632,6 +858,19 @@ export function RouteDetailScreen({ route, navigation }: Props) {
                 destinationIndex={1}
                 pois={routePois}
                 favorites={favorites}
+                offlineRegionKey={
+                  p.originLatitude != null &&
+                  p.originLongitude != null &&
+                  p.destinationLatitude != null &&
+                  p.destinationLongitude != null
+                    ? offlineMapService.makeRegionKey(
+                        p.originLatitude,
+                        p.originLongitude,
+                        p.destinationLatitude,
+                        p.destinationLongitude,
+                      )
+                    : null
+                }
                 accessibilityLabel={t(
                   'routeDetail.mapLabel',
                   { code: p.lineCode },
@@ -949,10 +1188,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  offlineControls: {
+    marginHorizontal: 12,
+    marginTop: 6,
+    marginBottom: 6,
+    gap: 4,
+  },
+
   offlineButton: {
-    marginHorizontal: 20,
-    marginTop: 14,
-    marginBottom: 14,
+    marginHorizontal: 8,
+    marginTop: 2,
+    marginBottom: 2,
+    minHeight: 42,
+  },
+
+  removeOfflineButton: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
 
   footer: {
@@ -967,9 +1224,9 @@ const styles = StyleSheet.create({
   },
 
   codeBadge: {
-    minWidth: 52,
-    height: 46,
-    borderRadius: 12,
+    minWidth: 46,
+    height: 40,
+    borderRadius: 10,
     paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',

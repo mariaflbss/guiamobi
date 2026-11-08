@@ -45,6 +45,7 @@ export interface RouteDetailParams {
   shape?: { latitude: number; longitude: number }[];
   stops?: import('../types/routes').LineStopDetail[];
   simulation?: boolean;
+  offlineSaved?: boolean;
 }
 
 export interface TripSummary {
@@ -61,7 +62,7 @@ export interface TripSummary {
 export type AppStackParamList = {
   MainTabs: { screen?: keyof AppTabParamList } | undefined;
   PlaceSearch: { field: 'origin' | 'destination' };
-  RoutesFound: { origin: RouteSearchPoint; destination: RouteSearchPoint; historyId?: string };
+  RoutesFound: { origin: RouteSearchPoint; destination: RouteSearchPoint; historyId?: string; reroute?: boolean };
   RouteDetail: RouteDetailParams;
   Tracking: RouteDetailParams & { boardingStopId: string; alightingStopId: string };
   StopAlert: { stopName: string };
@@ -72,4 +73,6 @@ export type AppStackParamList = {
   EditProfile: undefined;
   ChangePassword: undefined;
   Tutorial: { firstAccess?: boolean } | undefined;
+  // US17: avisos de alterações, desvios e interrupções das linhas acompanhadas
+  Notifications: undefined;
 };

@@ -174,6 +174,51 @@ export async function runMigrations(db: SQLite.SQLiteDatabase): Promise<void> {
       PRAGMA user_version = 6;
     `);
   }
+
+  if (version < 7) {
+    // Notificações sobre alterações nas linhas (US17). Tudo é por usuário, como
+    // favoritos e histórico: trocar de conta não mistura inscrições nem avisos.
+    //  - notification_preferences: chave geral + controle de sincronização com a API;
+    //  - line_subscriptions: linhas acompanhadas;
+    //  - line_notices: avisos já recebidos (também serve para não repetir notificação).
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS notification_preferences (
+        user_id TEXT PRIMARY KEY NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        sync_pending INTEGER NOT NULL DEFAULT 0,
+        initialized INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS line_subscriptions (
+        user_id TEXT NOT NULL,
+        line_id TEXT NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, line_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS line_notices (
+        user_id TEXT NOT NULL,
+        notice_key TEXT NOT NULL,
+        line_id TEXT NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        body TEXT,
+        created_at TEXT NOT NULL,
+        read_at TEXT,
+        PRIMARY KEY (user_id, notice_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_line_notices_user_created_at
+        ON line_notices(user_id, created_at DESC);
+
+      PRAGMA user_version = 7;
+    `);
+  }
 }
 
 

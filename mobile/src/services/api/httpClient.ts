@@ -1,5 +1,6 @@
 import { API_URL, SECURE_STORE_KEYS } from '../../constants/config';
 import { secureStorageService } from '../storage/secureStorageService';
+import { connectivityService } from '../connectivity/connectivityService';
 
 /**
  * Erro de API padronizado, com a mensagem já pronta para exibição ao
@@ -74,7 +75,10 @@ async function refreshAccessToken(): Promise<string | null> {
 function isExpectedOptionalRequest(path: string): boolean {
   return path.startsWith('/poi/nearby') ||
     path.startsWith('/geocode/reverse') ||
-    path.startsWith('/routes/nearby-lines');
+    path.startsWith('/routes/nearby-lines') ||
+    // US17: a sincronização das notificações é silenciosa; uma falha não deve
+    // gerar log de erro (no Expo Go isso apareceria como alerta vermelho).
+    path.startsWith('/notifications/');
 }
 
 function isExpectedCancellation(error: unknown, signal: AbortSignal | undefined, timedOut: boolean): boolean {
@@ -86,6 +90,11 @@ export async function httpClient<TResponse>(
   options: RequestOptions = {},
 ): Promise<TResponse> {
   const { method = 'GET', body, authenticated = false, skipRefresh = false, signal } = options;
+
+  const online = await connectivityService.isConnected().catch(() => true);
+  if (!online) {
+    throw new ApiError('offline', 0);
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

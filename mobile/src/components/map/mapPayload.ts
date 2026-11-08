@@ -40,112 +40,17 @@ export interface MapPoi {
  *  - demais paradas = cinza neutro (nunca confundir com os três acima)
  */
 export const MAP_MARKER_COLORS = {
-  // Cores com contraste suficiente para permanecerem legíveis no mapa sem
-  // voltar ao aspecto excessivamente vibrante. A borda branca separa os
-  // marcadores prioritários do mapa base; as paradas são a exceção e usam
-  // apenas tons de cinza para reduzir ruído visual.
-  you: '#1852A4',
-  origin: '#2F6FB6',
-  originRing: '#2F6FB6',
-  destination: '#15803D',
-  stop: '#6B7280',
+  // Paleta fixa para destacar os elementos sobre o mapa padrão, que já possui
+  // bastante azul, verde e cinza. As cores não dependem do tema do aplicativo.
+  line: '#E85D75',
+  you: '#7C3AED',
+  origin: '#F59E0B',
+  originRing: '#D97706',
+  destination: '#22C55E',
+  stop: '#94A3B8',
   poi: '#F97316',
-  favorite: '#6D28D9',
+  favorite: '#EC4899',
 } as const;
-
-export interface MapColors {
-  line: string;
-  you: string;
-  origin: string;
-  originRing: string;
-  destination: string;
-  stop: string;
-  poi: string;
-  favorite: string;
-}
-
-export interface MapDataInput {
-  stops: MapStop[];
-  shape?: Coordinates[];
-  traveledShape?: Coordinates[];
-  pois?: MapPoi[];
-  favorites?: MapFavorite[];
-  vehicles?: MapVehicle[];
-  boardingIndex?: number;
-  destinationIndex?: number;
-  currentStopIndex?: number;
-  currentStopAddress?: string;
-  colors: MapColors;
-  labels: {
-    line: string;
-    you: string;
-    origin: string;
-    destination: string;
-    stop: string;
-    address: string;
-    mapUnavailable: string;
-    unnamedPoi: string;
-    favorite: string;
-    favoriteCategories: Record<string, string>;
-    poi: Record<MapPoi['category'], string>;
-  };
-}
-
-/** Converte os dados do app no formato simples que a página do mapa entende. */
-export function buildMapData(input: MapDataInput) {
-  const { stops, boardingIndex, destinationIndex, currentStopIndex } = input;
-  // Único ponto por onde um traçado chega ao mapa: só passa geometria real.
-  const shape = evaluateShape(input.shape, stops);
-  const traveledShape = (input.traveledShape ?? []).filter(
-    (p) => p && Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
-  );
-  return {
-    shapeStatus: shape.status,
-    stops: stops.map((stop, index) => ({
-      lat: stop.latitude,
-      lon: stop.longitude,
-      index,
-      name: stop.name ?? '',
-      boarding: index === boardingIndex,
-      destination: index === destinationIndex,
-      current: index === currentStopIndex,
-      address: index === currentStopIndex ? input.currentStopAddress ?? '' : '',
-    })),
-    shape: shape.points.map((p) => [p.latitude, p.longitude]),
-    traveledShape: traveledShape.map((p) => [p.latitude, p.longitude]),
-    pois: (input.pois ?? []).map((poi) => ({
-      lat: poi.latitude,
-      lon: poi.longitude,
-      name: poi.name ?? '',
-      category: poi.category,
-    })),
-    favorites: (input.favorites ?? []).map((favorite) => ({
-      id: favorite.id,
-      lat: favorite.latitude,
-      lon: favorite.longitude,
-      nickname: favorite.nickname,
-      address: favorite.address,
-      category: favorite.category ?? favorite.kind ?? '',
-    })),
-    vehicles: (input.vehicles ?? []).map((v) => [v.latitude, v.longitude]),
-    colors: input.colors,
-    labels: input.labels,
-  };
-}
-
-/**
- * Monta o script que chama `window.GM.<method>(arg)` dentro da página do mapa.
- * O argumento vai como JSON (literal JS válido); U+2028/2029 são escapados por segurança.
- */
-export function buildPageCall(method: 'setData' | 'setUser' | 'setMapType', arg: unknown): string {
-  const json = JSON.stringify(arg).replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-  return `(function(){try{if(window.GM){window.GM.${method}(${json});}}catch(e){}})();true;`;
-}
-
-/** Normaliza a URL-base do WebView (precisa terminar em "/"). */
-export function normalizeBaseUrl(url: string): string {
-  return url.endsWith('/') ? url : `${url}/`;
-}
 
 /* ------------------------------------------------------------------ */
 /* Validação do traçado: só desenhamos geometria REAL, nunca inventada. */

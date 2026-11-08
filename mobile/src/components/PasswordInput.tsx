@@ -17,7 +17,7 @@ interface PasswordInputProps extends Omit<TextInputProps, 'secureTextEntry'> {
  * muda conforme o estado; role "button" com estado "checked" para leitores
  * de tela). Usado em Login, Cadastro, Redefinir senha e Editar perfil.
  */
-export const PasswordInput = forwardRef<TextInput, PasswordInputProps>(function PasswordInput(props, ref) {
+export const PasswordInput = forwardRef<React.ComponentRef<typeof AccessibleTextInput>, PasswordInputProps>(function PasswordInput(props, ref) {
   const { t } = useTranslation();
   const { theme } = useAccessibility();
   const [visible, setVisible] = useState(false);

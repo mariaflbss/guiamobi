@@ -10,7 +10,7 @@ import { MIN_TOUCH_TARGET } from '../theme/theme';
 import { Icon } from './Icon';
 import type { NavigationProp } from '@react-navigation/native';
 
-const HIDDEN_ROUTES = new Set(['Settings', 'Help', 'Login', 'Register', 'ForgotPassword', 'ResetPassword', 'Splash']);
+const HIDDEN_ROUTES = new Set(['Settings', 'Help', 'Login', 'Register', 'ForgotPassword', 'ResetPassword', 'Splash', 'Tracking', 'RouteDetail']);
 
 /**
  * Acesso global à Ajuda para as telas do aplicativo, exceto Configurações e

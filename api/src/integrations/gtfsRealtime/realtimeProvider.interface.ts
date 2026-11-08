@@ -39,6 +39,11 @@ export interface ServiceAlert {
   headerText: string;
   descriptionText: string | null;
   severity: 'INFO' | 'WARNING' | 'SEVERE' | 'UNKNOWN';
+  /**
+   * Efeito do alerta no serviço (GTFS-RT Alert.effect), quando a fonte informa.
+   * Usado pelas notificações (US17) para separar interrupção, desvio e demais alterações.
+   */
+  effect?: 'NO_SERVICE' | 'DETOUR' | 'OTHER';
 }
 
 export interface RealtimeAvailability {

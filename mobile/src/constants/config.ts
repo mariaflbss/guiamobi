@@ -6,10 +6,9 @@
 // prefixo EXPO_PUBLIC_ ficam disponíveis no bundle do app).
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3333';
 
-// Mapa (US09). O servidor de mapas do OpenStreetMap só entrega os "tiles" a
-// quem envia um cabeçalho Referer válido (política de uso dos tiles do OSM).
-// O WebView do mapa usa esta URL como origem para enviar esse Referer. Em
-// produção, aponte para o site/repositório real do projeto.
+// Mapa (US09). O mapa online usa react-native-maps no Expo Go. Esta URL
+// continua sendo usada somente pelo download dos tiles OSM que compõem o
+// cache local do mapa offline, respeitando a política de uso do servidor.
 export const MAP_REFERER_URL = process.env.EXPO_PUBLIC_MAP_REFERER_URL || 'https://guiamobi.app/';
 
 // Regras de negócio (US07)

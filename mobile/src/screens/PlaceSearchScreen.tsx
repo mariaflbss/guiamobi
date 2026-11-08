@@ -36,7 +36,7 @@ export function PlaceSearchScreen({ navigation, route }: Props) {
   const { favorites } = useFavorites();
   const draft = useRouteDraft();
   const search = useLocationSearch();
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
   useStatusBarStyle('light');
   const c = theme.colors;
 

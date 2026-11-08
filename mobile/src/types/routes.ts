@@ -24,6 +24,8 @@ export interface RouteOption {
   shape?: { latitude: number; longitude: number }[];
   /** Paradas intermediárias carregadas junto com a opção para abrir a linha sem nova requisição. */
   stops?: LineStopDetail[];
+  /** True somente quando a opção veio do armazenamento persistente de rota offline. */
+  offlineCached?: boolean;
 }
 
 export interface LineStopDetail {

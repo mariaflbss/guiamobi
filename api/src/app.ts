@@ -10,6 +10,7 @@ import { geocodeRoutes } from './modules/geocode/geocode.routes';
 import { poiRoutes } from './modules/poi/poi.routes';
 import { speechRoutes } from './modules/speech/speech.routes';
 import { movementRoutes } from './modules/movement/movement.routes';
+import { notificationsRoutes } from './modules/notifications/notifications.routes';
 
 /**
  * Monta a aplicação Fastify: plugins, tratamento de erros e rotas.
@@ -42,6 +43,7 @@ export function buildApp() {
   app.register(poiRoutes);
   app.register(speechRoutes);
   app.register(movementRoutes);
+  app.register(notificationsRoutes);
 
   return app;
 }

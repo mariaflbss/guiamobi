@@ -123,6 +123,7 @@ export class GtfsRealtimeHttpProvider implements RealtimeProvider {
         headerText: translatedStringToText(alert.headerText) ?? '(sem título)',
         descriptionText: translatedStringToText(alert.descriptionText),
         severity: mapSeverity(alert.severityLevel),
+        effect: mapEffect(alert.effect),
       });
     }
 
@@ -134,6 +135,20 @@ function translatedStringToText(value?: transit_realtime.ITranslatedString | nul
   const translations = value?.translation ?? [];
   const ptBr = translations.find((t) => t.language === 'pt' || t.language === 'pt-BR');
   return ptBr?.text ?? translations[0]?.text ?? null;
+}
+
+function mapEffect(effect?: transit_realtime.Alert.Effect | null): ServiceAlert['effect'] {
+  switch (effect) {
+    case transit_realtime.Alert.Effect.NO_SERVICE:
+      return 'NO_SERVICE';
+    case transit_realtime.Alert.Effect.DETOUR:
+      return 'DETOUR';
+    case undefined:
+    case null:
+      return undefined;
+    default:
+      return 'OTHER';
+  }
 }
 
 function mapSeverity(level?: transit_realtime.Alert.SeverityLevel | null): ServiceAlert['severity'] {

@@ -20,8 +20,10 @@ import { HelpScreen } from '../screens/HelpScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { ChangePasswordScreen } from '../screens/ChangePasswordScreen';
 import { TutorialScreen } from '../screens/TutorialScreen';
+import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { useAuth } from '../hooks/useAuth';
 import { OfflineStatusBanner } from '../components/OfflineStatusBanner';
+import { LineNoticeBanner } from '../components/LineNoticeBanner';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -66,7 +68,9 @@ export function AppNavigator() {
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
       <Stack.Screen name="Tutorial" component={TutorialScreen} initialParams={{ firstAccess: shouldShowTutorial }} />
+      <Stack.Screen name="Notifications" component={NotificationsScreen} />
       </Stack.Navigator>
+      <LineNoticeBanner />
     </View>
   );
 }

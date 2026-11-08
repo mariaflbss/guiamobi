@@ -6,8 +6,8 @@ import { connectivityService } from '../services/connectivity/connectivityServic
  * Usado para bloquear buscas externas e exibir mensagens claras de offline
  * (US05 - "Verificação de internet antes de consultas externas").
  */
-export function useConnectivity() {
-  const [isConnected, setIsConnected] = useState(true);
+export function useConnectivity(initialIsConnected = true) {
+  const [isConnected, setIsConnected] = useState(initialIsConnected);
 
   useEffect(() => {
     connectivityService.isConnected().then(setIsConnected);

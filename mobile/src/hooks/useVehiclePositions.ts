@@ -33,7 +33,12 @@ export function useVehiclePositions(lineId: string, enabled = true) {
       }
     }
 
-    if (enabled) load();
+    if (enabled) {
+      load();
+    } else {
+      setVehicles([]);
+      setAvailable(false);
+    }
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);

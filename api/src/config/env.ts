@@ -44,7 +44,7 @@ const envSchema = z.object({
   // GTFS oficial importado se houver, senão a fixture de desenvolvimento),
   // ou forçar um específico ("otp" | "gtfs" | "dev") para testes.
   TRANSIT_PROVIDER: z.enum(['auto', 'otp', 'gtfs', 'dev']).optional().default('auto'),
-  // Cenário opcional para testar R39/US06 localmente: normal | delayed-101 | unavailable-101.
+  // Cenário opcional para testar R39/US06 localmente: normal | delayed-101 | detour-101 | unavailable-101.
   MOCK_TRANSIT_SCENARIO: z.string().optional().default('normal'),
   // Google Cloud Text-to-Speech: chave restrita à API e mantida apenas no backend.
   GOOGLE_TTS_API_KEY: z.string().optional().default(''),
